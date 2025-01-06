@@ -3,3 +3,7 @@ uv run hello.py
 uv run pyright hello.py
 uv run ruff format hello.py
 flake8 --max-line-length=120 hello.py
+
+uv run --with jupyter jupyter lab
+uv add --dev ipykernel
+uv run ipython kernel install --user --name=zeb

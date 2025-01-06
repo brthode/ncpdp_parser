@@ -15,7 +15,7 @@ SEGMENT_SEPARATOR = chr(30)  # Record Separator <RS> / <0x1e>
 type DigitString = Annotated[str, StringConstraints(pattern="^\\d+$")]
 
 
-def parse_claim(raw_claim: str):
+def parse_claim_segment(raw_claim: str):
     row: str = raw_claim.split(SEGMENT_SEPARATOR)[1]
     return [s for s in row.split(FIELD_SEPARATOR) if s]
 
@@ -180,14 +180,17 @@ NCPCP_HEADER: dict[str, str] = {
 
 
 def main():
-    raw_data = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
-    # claims = split_claims(raw_data)
-    header = get_header(raw_data)
-    parse_header_values(header)
-    # fields = {name: header[fmt.start : fmt.end] for name, fmt in EMI_HEADER.items()}
-    sadf = EMIHeader.from_emi_string(header)
-    patient_info = parse_claim(raw_data)
-    print(patient_info)
+    raw_claim_data = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
+
+    raw_header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
+    header = "".join(raw_header.split())
+    segments = [segment.strip().split(SEGMENT_SEPARATOR) for segment in raw_segments]
+
+    emi_header = EMIHeader.from_emi_string(header)
+    print(emi_header)
+
+    # patient_info = parse_claim_segment(raw_claim_data)
+    # print(patient_info)
 
 
 if __name__ == "__main__":

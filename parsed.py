@@ -10,12 +10,42 @@ FIELD_SEPARATOR = chr(28)  # File Separator <FS> / <0x1c>
 GROUP_SEPARATOR = chr(29)  # Group Separator <GS> / <0x1d>
 SEGMENT_SEPARATOR = chr(30)  # Record Separator <RS> / <0x1e>
 
-SEGMENTS = {
-    "INSURANCE_SEGMENT": "AM04",
-    "PATIENT_SEGMENT": "AM01",
-    "CLAIM_SEGMENT": "AM07",
-    "PRICING_SEGMENT": "AM11",
-}
+
+class InsuranceSegment(BaseModel):
+    segment_id: str = "AM04"
+
+
+class PatientSegment(BaseModel):
+    segment_id: str = "AM01"
+
+
+class ClaimSegment(BaseModel):
+    segment_id: str = "AM07"
+
+
+class PricingSegment(BaseModel):
+    segment_id: str = "AM11"
+
+
+class PrescriberSegment(BaseModel):  # AM03
+    segment_id: str = "AM03"
+    prescriber_id: str
+    prescriber_name: str | None = None
+    contact_information: str | None = None
+
+
+class PharmacyProviderSegment(BaseModel):  # AM06
+    segment_id: str = "AM06"
+    pharmacy_id: str
+    pharmacy_name: str | None = None
+    address: str | None = None
+
+
+class ClinicalSegment(BaseModel):  # AM08
+    segment_id: str = "AM08"
+    prior_authorization_number: str | None = None
+    drug_utilization_review: dict[str, str] | None = None
+    clinical_codes: list[str] | None = None
 
 
 class Segments(StrEnum):
@@ -87,20 +117,43 @@ class ValueParser:
 
 def parse_claim(raw_claim: str):
     row: str = raw_claim.split(SEGMENT_SEPARATOR)[1]
-    for segment in SEGMENTS.values():
+    for segment in Segments:
         row = row.replace(segment, "")
     return [s for s in row.split(FIELD_SEPARATOR) if s]
 
 
-def identify_segments(segment: str) -> Segments | None:
-    for s in Segments:
-        if segment.startswith(s.value):
-            return s
-    return None
+def identify_segments(segments: list[str]) -> tuple[ClaimSegment, InsuranceSegment, PatientSegment, PricingSegment]:
+    # TODO - Implement this function
+    pass
+
+
+def parse_header_values(input_string: str) -> tuple[str, str, str, str, str, str]:
+    header_length: int = 31
+    if len(input_string) != header_length:
+        raise ValueError(f"Input string must be exactly {header_length} characters long.")
+
+    rxbin = input_string[:6]
+    version = input_string[6:8]
+    transaction_code = input_string[8:10]
+    processor_control = input_string[10:20]
+    count = input_string[21:24]
+    date = input_string[23:]
+
+    return (rxbin, version, transaction_code, processor_control, count, date)
 
 
 if __name__ == "__main__":
     values = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
+
+    claim = values.split(SEGMENT_SEPARATOR)
+    raw_header = "".join(claim[0].split())  #  We're mixing up claim and header variable names here.
+    header = parse_header_values(raw_header)
+
+    raw_segments = claim[1:]
+
+    claim_seg: list[str] = raw_segments[1].strip().split(FIELD_SEPARATOR)
+    segments = [segment.strip().split(SEGMENT_SEPARATOR) for segment in raw_segments]
+
     patient_info = parse_claim(values)
 
     for v in patient_info:
