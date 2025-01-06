@@ -185,6 +185,7 @@ def main():
     raw_header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
     header = "".join(raw_header.split())
     segments = [segment.strip().split(SEGMENT_SEPARATOR) for segment in raw_segments]
+    print(segments)
 
     emi_header = EMIHeader.from_emi_string(header)
     print(emi_header)
