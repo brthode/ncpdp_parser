@@ -1,0 +1,5 @@
+uv run black --line-length 120 .
+uv run hello.py
+uv run pyright hello.py
+uv run ruff format hello.py
+flake8 --max-line-length=120 hello.py

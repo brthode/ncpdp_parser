@@ -1,0 +1,53 @@
+[project]
+name = "zeb"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "polyfactory>=2.18.1",
+    "pydantic>=2.10.4",
+]
+
+[dependency-groups]
+dev = [
+    "black>=24.10.0",
+    "flake8>=7.1.1",
+    "ipykernel>=6.29.5",
+    "pyflakes>=3.2.0",
+    "pyright>=1.1.391",
+    "ruff>=0.8.4",
+]
+
+[tool.pylint.messages_control]
+max-line-length = 120
+disable = [
+    "missing-docstring",
+    "fixme",
+    "too-few-public-methods",
+    "useless-object-inheritance",
+    "unnecessary-dunder-call",
+    "too-many-instance-attributes",
+    "too-many-nested-blocks"
+]
+
+[tool.ruff]
+target-version = "py312"
+# lint.select = ["UP"]
+# lint.select = ["ALL"]
+line-length = 120
+lint.fixable = ["ALL"]
+lint.select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+]
