@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-import pathlib
-from abc import ABC
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, PrivateAttr, StringConstraints, field_validator, model_validator
+from polyfactory.factories import DataclassFactory
+from pydantic import (
+    BaseModel,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
-HEADER_LENGTH = 31
-FIELD_SEPARATOR = chr(28)  # File Separator <FS> / <0x1c>
-GROUP_SEPARATOR = chr(29)  # Group Separator <GS> / <0x1d>
-SEGMENT_SEPARATOR = chr(30)  # Record Separator <RS> / <0x1e>
+type DigitString = Annotated[str, StringConstraints(pattern="^\\d+$")]
 
 
 class TransactionCode(StrEnum):
@@ -34,9 +36,6 @@ class Format(BaseModel):
     start: int
     end: int | None
 
-    def __init__(self, start: int, end: int | None = None):
-        super().__init__(start=start, end=end)
-
     @model_validator(mode="after")
     def validate_bounds(self) -> Format:
         if self.end is not None and self.start > self.end:
@@ -49,7 +48,7 @@ class EMIHeader(BaseModel):
     Represents an EMI header with strict format requirements.
 
     Format:
-    DDDDDD = RXBin (6 digits) Issuer Identification Number / Bank Identification Number
+    DDDDDD = RXBin (6 digits)
     AA = Version (D0 or 51)
     BN = Transaction Code (B1 or B2)
     DDDDDDDDDD = Processor Control # (10 digits)
@@ -104,8 +103,8 @@ class EMIHeader(BaseModel):
     @classmethod
     def from_emi_string(cls, emi_string: str) -> EMIHeader:
         """Creates an EMIHeader instance from an EMI string."""
-        if len(emi_string) < 31:  # Minimum length for all required fields
-            raise ValueError("EMI string too short")
+        if len(emi_string) == 31:
+            raise ValueError("EMI Header string must be exactly 31 characters long")
 
         return cls(
             rxbin=emi_string[0:6].strip(),
@@ -117,75 +116,23 @@ class EMIHeader(BaseModel):
         )
 
 
-class SegmentBase(ABC, BaseModel):
-    """Abstract base class for all segments."""
+# Factory for generating test data
+class EMIHeaderFactory(DataclassFactory[EMIHeader]):
+    """Factory for generating test EMIHeader instances."""
 
-    def key_mapping(self) -> dict[str, str]:
-        """
-        Abstract property to define key-to-attribute mapping.
-        Must be implemented in subclasses.
-        """
-
-
-def map_values_to_keys(segment_mapping: dict[str, str], values: list[str]) -> dict[str, str]:
-    return {segment_mapping[prefix]: value[2:] for value in values if (prefix := value[:2]) in segment_mapping}
-
-
-class InsuranceSegment(SegmentBase):
-    segment_id: str = "AM04"
-
-    first_name: str
-    last_name: str
-    person_code: str
-    cardholder_id: str
-    internal_control_number: str
-
-    _key_mapping: dict[str, str] = PrivateAttr(
-        default={
-            "C1": "first_name",
-            "C2": "internal_control_number",
-            "C3": "person_code",
-            "A6": "cardholder_id",
-            "A7": "last_name",
-        }
-    )
+    __model__ = EMIHeader
 
     @classmethod
-    def get_key_mapping(cls) -> dict[str, str]:
-        return cls._key_mapping
+    def rxbin(cls) -> str:
+        """Generates a valid 6-digit RxBIN."""
+        return "".join(str(cls.__random__.randint(0, 9)) for _ in range(6))
 
+    @classmethod
+    def processor_control(cls) -> str:
+        """Generates a valid 10-digit processor control number."""
+        return "".join(str(cls.__random__.randint(0, 9)) for _ in range(10))
 
-@staticmethod
-def parse_segment(
-    raw_segment: str,
-) -> InsuranceSegment | None:
-    if not raw_segment or len(raw_segment) == 0:
-        return None
-
-    segment_id, *values = raw_segment.split(FIELD_SEPARATOR)
-
-    segment_classes = [InsuranceSegment]
-
-    for segment_class in segment_classes:
-        if segment_class.model_fields.get("segment_id").default == segment_id:
-            result = map_values_to_keys(segment_class.get_key_mapping().default, values)
-            return segment_class(**result)
-    return None
-
-
-def main():
-    raw_claim_data = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
-
-    raw_header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
-    header = "".join(raw_header.split())
-    emi_header = EMIHeader.from_emi_string(header)
-    print(emi_header)
-
-    segments = [segment.strip() for segment in raw_segments]
-
-    parsed = parse_segment(segments[0])
-    print(parsed)
-
-
-if __name__ == "__main__":
-    main()
+    @classmethod
+    def count(cls) -> str:
+        """Generates a valid 3-digit count string."""
+        return f"{cls.__random__.randint(1, 999):03d}"

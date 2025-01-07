@@ -3,6 +3,7 @@ from __future__ import annotations
 import pathlib
 from abc import ABC
 from enum import Enum, StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -60,6 +61,67 @@ class ClinicalSegment(BaseModel):  # AM08
     prior_authorization_number: str | None = None
     drug_utilization_review: dict[str, str] | None = None
     clinical_codes: list[str] | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+
+    # Define a mapping of external keys to model attributes
+    key_mapping: dict[str, str] = {
+        "C1": "prior_authorization_number",
+        "C2": "first_name",
+        "C3": "last_name",
+        "C4": "clinical_codes",
+        "C5": "drug_utilization_review",
+    }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ClinicalSegment:
+        """
+        Creates an instance of ClinicalSegment from a dictionary,
+        mapping external keys to the model's attributes.
+        """
+        mapped_data = {}
+        for key, value in data.items():
+            attribute_name = cls.key_mapping.get(key)
+            if attribute_name:
+                # Handle type casting for list and dict attributes
+                if attribute_name == "clinical_codes" and isinstance(value, str):
+                    mapped_data[attribute_name] = value.split(",")  # Assuming comma-separated codes
+                elif attribute_name == "drug_utilization_review" and isinstance(value, str):
+                    mapped_data[attribute_name] = {
+                        k.strip(): v.strip() for k, v in (item.split(":") for item in value.split(","))
+                    }
+                else:
+                    mapped_data[attribute_name] = value
+
+        return cls(**mapped_data)
+
+    @classmethod
+    def from_list(cls, data: list[str]) -> ClinicalSegment:
+        """
+        Creates an instance of ClinicalSegment from a list of strings,
+        where each string consists of a two-character key followed by the value.
+        """
+        # Use `cls.__fields__` to ensure compatibility
+        field_mapping = cls.key_mapping
+        mapped_data = {}
+        for item in data:
+            if len(item) < 3:  # Ensure there's at least a key and some value
+                continue
+            key = item[:2]  # Extract the two-character key
+            value = item[2:]  # Extract the value
+            attribute_name = field_mapping.get(key)
+            if attribute_name:
+                # Handle type casting for list and dict attributes
+                if attribute_name == "clinical_codes":
+                    mapped_data[attribute_name] = value.split(",")  # Assuming comma-separated codes
+                elif attribute_name == "drug_utilization_review":
+                    mapped_data[attribute_name] = {
+                        k.strip(): v.strip() for k, v in (item.split(":") for item in value.split(","))
+                    }
+                else:
+                    mapped_data[attribute_name] = value
+
+        return cls(**mapped_data)
 
 
 class SegmentCollection(BaseModel):
@@ -93,6 +155,7 @@ def parse_segment(
         return None
 
     segment_id = raw_segment.split(FIELD_SEPARATOR)[0]
+    values = raw_segment.split(FIELD_SEPARATOR)[1:]
 
     segment_classes = [
         PatientSegment,
@@ -111,7 +174,7 @@ def parse_segment(
             elif segment_class == PharmacyProviderSegment:
                 return segment_class(pharmacy_id=raw_segment[1])
             else:
-                return segment_class()
+                return segment_class().from_list(values)
     return None
 
 
@@ -208,18 +271,17 @@ if __name__ == "__main__":
     values = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
 
     claim = values.split(SEGMENT_SEPARATOR)
-    raw_header = "".join(claim[0].split())  #  We're mixing up claim and header variable names here.
+    raw_header = "".join(claim[0].split())
     header = parse_header_values(raw_header)
 
     raw_segments = claim[1:]
 
     claim_seg: list[str] = raw_segments[1].strip().split(FIELD_SEPARATOR)
-    # segments = [segment.strip().split(SEGMENT_SEPARATOR) for segment in raw_segments]
     segments = [segment.strip() for segment in raw_segments]
 
     patient_info = parse_claim(values)
 
-    z1 = parse_segment(segments[0])  # InsuranceSegment
+    z1 = parse_segment(segments[6])  # InsuranceSegment
     print(type(z1))
 
     for v in patient_info:

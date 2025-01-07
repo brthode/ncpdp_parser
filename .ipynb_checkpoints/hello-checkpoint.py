@@ -1,17 +1,50 @@
 from __future__ import annotations
 
 import pathlib
-from abc import ABC
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, PrivateAttr, StringConstraints, field_validator, model_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
 HEADER_LENGTH = 31
 FIELD_SEPARATOR = chr(28)  # File Separator <FS> / <0x1c>
 GROUP_SEPARATOR = chr(29)  # Group Separator <GS> / <0x1d>
 SEGMENT_SEPARATOR = chr(30)  # Record Separator <RS> / <0x1e>
+
+type DigitString = Annotated[str, StringConstraints(pattern="^\\d+$")]
+
+
+def parse_claim(raw_claim: str):
+    row: str = raw_claim.split(SEGMENT_SEPARATOR)[1]
+    return [s for s in row.split(FIELD_SEPARATOR) if s]
+
+
+def get_header(raw_claim: str):
+    rows: list[str] = raw_claim.split(SEGMENT_SEPARATOR)
+    clean_header = "".join(rows[0].split())
+    return clean_header
+
+
+def parse_header_values(input_string: str) -> tuple[str, str, str, str, str, str]:
+    header_length: int = 31
+    if len(input_string) != header_length:
+        raise ValueError(f"Input string must be exactly {header_length} characters long.")
+
+    rxbin = input_string[:6]
+    version = input_string[6:8]
+    transaction_code = input_string[8:10]
+    processor_control = input_string[10:20]
+    count = input_string[21:24]
+    date = input_string[23:]
+
+    return (rxbin, version, transaction_code, processor_control, count, date)
+
+
+# @dataclass
+# class Format:
+#     start: int
+#     end: int | None
 
 
 class TransactionCode(StrEnum):
@@ -117,74 +150,44 @@ class EMIHeader(BaseModel):
         )
 
 
-class SegmentBase(ABC, BaseModel):
-    """Abstract base class for all segments."""
-
-    def key_mapping(self) -> dict[str, str]:
-        """
-        Abstract property to define key-to-attribute mapping.
-        Must be implemented in subclasses.
-        """
+class NCPDP(BaseModel):
+    header: EMIHeader
 
 
-def map_values_to_keys(segment_mapping: dict[str, str], values: list[str]) -> dict[str, str]:
-    return {segment_mapping[prefix]: value[2:] for value in values if (prefix := value[:2]) in segment_mapping}
+EMI_HEADER: dict[str, Format] = {
+    "rxbin": Format(0, 6),
+    "version": Format(6, 8),
+    "transaction_code": Format(8, 10),
+    "processor_control": Format(10, 20),
+    "count": Format(21, 24),
+    "date": Format(23, None),
+}
 
+NCPCP_HEADER: dict[str, str] = {
+    "C4": "Patient Date of Birth",
+    "CA": "Patient First Name",
+    "CB": "Patient Last Name",
+    "C5": "Patient Gender Code",
+    "CM": "Patient Street Address",
+    "CN": "Patient City Address",
+    "CP": "Patient State Address",
+    "CO": "Patient Zip Code",
+}
 
-class InsuranceSegment(SegmentBase):
-    segment_id: str = "AM04"
-
-    first_name: str
-    last_name: str
-    person_code: str
-    cardholder_id: str
-    internal_control_number: str
-
-    _key_mapping: dict[str, str] = PrivateAttr(
-        default={
-            "C1": "first_name",
-            "C2": "internal_control_number",
-            "C3": "person_code",
-            "A6": "cardholder_id",
-            "A7": "last_name",
-        }
-    )
-
-    @classmethod
-    def get_key_mapping(cls) -> dict[str, str]:
-        return cls._key_mapping
-
-
-@staticmethod
-def parse_segment(
-    raw_segment: str,
-) -> InsuranceSegment | None:
-    if not raw_segment or len(raw_segment) == 0:
-        return None
-
-    segment_id, *values = raw_segment.split(FIELD_SEPARATOR)
-
-    segment_classes = [InsuranceSegment]
-
-    for segment_class in segment_classes:
-        if segment_class.model_fields.get("segment_id").default == segment_id:
-            result = map_values_to_keys(segment_class.get_key_mapping().default, values)
-            return segment_class(**result)
-    return None
+# Create a dictonary of field mappings to their model.
+# Split all fields into prefix and value.
+# Construct an instance of each model via lookup.
 
 
 def main():
-    raw_claim_data = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
-
-    raw_header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
-    header = "".join(raw_header.split())
-    emi_header = EMIHeader.from_emi_string(header)
-    print(emi_header)
-
-    segments = [segment.strip() for segment in raw_segments]
-
-    parsed = parse_segment(segments[0])
-    print(parsed)
+    raw_data = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
+    # claims = split_claims(raw_data)
+    header = get_header(raw_data)
+    parse_header_values(header)
+    # fields = {name: header[fmt.start : fmt.end] for name, fmt in EMI_HEADER.items()}
+    sadf = EMIHeader.from_emi_string(header)
+    patient_info = parse_claim(raw_data)
+    print(patient_info)
 
 
 if __name__ == "__main__":
