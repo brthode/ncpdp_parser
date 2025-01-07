@@ -120,11 +120,9 @@ class EMIHeader(BaseModel):
 class SegmentBase(ABC, BaseModel):
     """Abstract base class for all segments."""
 
-    def key_mapping(self) -> dict[str, str]:
-        """
-        Abstract property to define key-to-attribute mapping.
-        Must be implemented in subclasses.
-        """
+    @classmethod
+    def get_key_mapping(cls) -> dict[str, str]:
+        return cls._key_mapping
 
 
 def map_values_to_keys(segment_mapping: dict[str, str], values: list[str]) -> dict[str, str]:
@@ -150,9 +148,25 @@ class InsuranceSegment(SegmentBase):
         }
     )
 
-    @classmethod
-    def get_key_mapping(cls) -> dict[str, str]:
-        return cls._key_mapping
+
+class PatientSegment(SegmentBase):
+    segment_id: str = "AM01"
+
+    a: str
+    b: str
+    c: str
+    d: str
+    e: str
+
+    _key_mapping: dict[str, str] = PrivateAttr(
+        default={
+            "C4": "a",
+            "C5": "b",
+            "CA": "c",
+            "CB": "d",
+            "CP": "e",
+        }
+    )
 
 
 @staticmethod
@@ -164,7 +178,7 @@ def parse_segment(
 
     segment_id, *values = raw_segment.split(FIELD_SEPARATOR)
 
-    segment_classes = [InsuranceSegment]
+    segment_classes = [InsuranceSegment, PatientSegment]
 
     for segment_class in segment_classes:
         if segment_class.model_fields.get("segment_id").default == segment_id:
@@ -173,18 +187,53 @@ def parse_segment(
     return None
 
 
+class ClaimSegment(SegmentBase):
+    segment_id: str = "AM07"
+
+
+class PricingSegment(SegmentBase):
+    segment_id: str = "AM11"
+
+
+class PrescriberSegment(SegmentBase):
+    segment_id: str = "AM03"
+
+
+class PharmacyProviderSegment(SegmentBase):
+    segment_id: str = "AM06"
+
+
+class ClinicalSegment(SegmentBase):
+    segment_id: str = "AM08"
+
+
+class ClaimModel(BaseModel):
+    header: EMIHeader
+    insurance: InsuranceSegment | None = None
+    patient: PatientSegment | None = None
+
+    @classmethod
+    def from_segments(cls, header: EMIHeader, segments: list[SegmentBase]) -> ClaimModel:
+        claim_data = {"header": header}
+        for segment in segments:
+            if isinstance(segment, InsuranceSegment):
+                claim_data["insurance"] = segment
+            elif isinstance(segment, PatientSegment):
+                claim_data["patient"] = segment
+        return cls(**claim_data)
+
+
 def main():
     raw_claim_data = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
 
     raw_header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
     header = "".join(raw_header.split())
     emi_header = EMIHeader.from_emi_string(header)
-    print(emi_header)
 
-    segments = [segment.strip() for segment in raw_segments]
+    segments = [parse_segment(segment.strip()) for segment in raw_segments]
+    claim = ClaimModel.from_segments(emi_header, segments)
 
-    parsed = parse_segment(segments[0])
-    print(parsed)
+    print(claim)
 
 
 if __name__ == "__main__":
