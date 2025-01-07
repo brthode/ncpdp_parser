@@ -6,60 +6,13 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any
 
+from polyfactory.factories.pydantic_factory import ModelFactory
 from pydantic import BaseModel, Field, PrivateAttr, StringConstraints, field_validator, model_validator
 
 HEADER_LENGTH = 31
 FIELD_SEPARATOR = chr(28)  # File Separator <FS> / <0x1c>
 GROUP_SEPARATOR = chr(29)  # Group Separator <GS> / <0x1d>
 SEGMENT_SEPARATOR = chr(30)  # Record Separator <RS> / <0x1e>
-
-
-# def decode_overpunch(value: str) -> int:
-#     overpunch_map = {
-#         "0": "0",
-#         "1": "1",
-#         "2": "2",
-#         "3": "3",
-#         "4": "4",
-#         "5": "5",
-#         "6": "6",
-#         "7": "7",
-#         "8": "8",
-#         "9": "9",
-#         "{": "0",
-#         "A": "1",
-#         "B": "2",
-#         "C": "3",
-#         "D": "4",
-#         "E": "5",
-#         "F": "6",
-#         "G": "7",
-#         "H": "8",
-#         "I": "9",
-#         "}": "0-",
-#         "J": "1-",
-#         "K": "2-",
-#         "L": "3-",
-#         "M": "4-",
-#         "N": "5-",
-#         "O": "6-",
-#         "P": "7-",
-#         "Q": "8-",
-#         "R": "9-",
-#     }
-
-#     if not value:
-#         raise ValueError("Value cannot be empty")
-
-#     sign_char = value[-1]
-#     number_part = value[:-1]
-#     mapped = overpunch_map.get(sign_char.upper())
-#     if mapped is None:
-#         raise ValueError(f"Invalid overpunch character: {sign_char}")
-
-#     if "-" in mapped:
-#         return -int(number_part + mapped[0])
-#     return int(number_part + mapped[0])
 
 
 def encode_overpunch(value: int) -> str:
@@ -108,8 +61,8 @@ class Gender(StrEnum):
 class Version(StrEnum):
     """Valid version codes for EMI headers."""
 
-    D0 = "D0"
-    V51 = "51"
+    D0 = "D0"  # Current version code
+    V51 = "51"  # Legacy version code
 
 
 class Format(BaseModel):
@@ -482,7 +435,126 @@ class ClaimModel(BaseModel):
         return cls(**claim_data)
 
 
-def main():
+class EMIHeaderFactory(ModelFactory[EMIHeader]):
+    """Factory for generating test EMIHeader instances."""
+
+    __model__ = EMIHeader
+
+    version = Version.D0  # Use modern version
+    transaction_code = TransactionCode.SUBMISSION  # Use submission transaction code
+    date = datetime.now()  # Use current date
+
+
+class InsuranceSegmentFactory(ModelFactory[InsuranceSegment]):
+    """Factory for generating test InsuranceSegment instances."""
+
+    __model__ = InsuranceSegment
+
+    # first_name = "John"
+    # last_name = "Doe"
+    # person_code = "01"
+    # cardholder_id = "1234567890"
+    # internal_control_number = "1234567890"
+
+
+class PatientSegmentFactory(ModelFactory[PatientSegment]):
+    """Factory for generating test PatientSegment instances."""
+
+    __model__ = PatientSegment
+
+    # dob = datetime
+
+
+class ClaimSegmentFactory(ModelFactory[ClaimSegment]):
+    """Factory for generating test ClaimSegment instances."""
+
+    __model__ = ClaimSegment
+
+    # prescription_service_reference_number_qualifier = "EM"
+    # prescription_service_reference_number = "1234567890"
+    # product_service_id_qualifier = "E1"
+    # product_service_id = "1234567890"
+    # quantity_dispensed = "1"
+    # days_supply = "30"
+    # daw_product_selection_code = "0"
+    # date_written = "20220101"
+    # refills_authorized = "0"
+    # refill_number = "0"
+    # dateof_service = "20220101"
+    # levelof_service = "1"
+    # prescription_origin_code = "1"
+    # submission_clarification_code = "1"
+    # other_coverage_code = "1"
+
+
+class PricingSegmentFactory(ModelFactory[PricingSegment]):
+    """Factory for generating test PricingSegment instances."""
+
+    __model__ = PricingSegment
+
+    # ingredient_cost_submitted = "1234567890"
+    # dispensing_fee_submitted = "1234567890"
+    # professional_service_fee_submitted = "1234567890"
+    # gross_amount_due = "1234567890"
+    # other_amount_claimed = "1234567890"
+
+
+class PrescriberSegmentFactory(ModelFactory[PrescriberSegment]):
+    """Factory for generating test PrescriberSegment instances."""
+
+    __model__ = PrescriberSegment
+
+    # prescriber_id_qualifier = "EZ"
+    # prescriber_id = "1234567890"
+
+
+class PharmacyProviderSegmentFactory(ModelFactory[PharmacyProviderSegment]):
+    """Factory for generating test PharmacyProviderSegment instances."""
+
+    __model__ = PharmacyProviderSegment
+
+    # group_id = "1234567890"
+
+
+class ClinicalSegmentFactory(ModelFactory[ClinicalSegment]):
+    """Factory for generating test ClinicalSegment instances."""
+
+    __model__ = ClinicalSegment
+
+    # other_payer_coverage_type = "7E"
+    # other_payer_id_qualifier = "E5"
+
+
+class ClaimModelFactory(ModelFactory[ClaimModel]):
+    """Factory for generating test ClaimModel instances."""
+
+    __model__ = ClaimModel
+
+    header = EMIHeaderFactory.build()
+    insurance = InsuranceSegmentFactory.build()
+    patient = PatientSegmentFactory.build()
+    claim = ClaimSegmentFactory.build()
+    pricing = PricingSegmentFactory.build()
+    prescriber = PrescriberSegmentFactory.build()
+    pharmacy_provider = PharmacyProviderSegmentFactory.build()
+    clinical = ClinicalSegmentFactory.build()
+
+    @classmethod
+    def build(cls) -> ClaimModel:
+        """Builds a ClaimModel instance with all segments."""
+        return cls.__model__(
+            header=cls.header,
+            insurance=cls.insurance,
+            patient=cls.patient,
+            claim=cls.claim,
+            pricing=cls.pricing,
+            prescriber=cls.prescriber,
+            pharmacy_provider=cls.pharmacy_provider,
+            clinical=cls.clinical,
+        )
+
+
+def parse_claim_file():
     raw_claim_data = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
 
     raw_header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
@@ -491,6 +563,16 @@ def main():
 
     segments = [parse_segment(segment.strip()) for segment in raw_segments]
     claim = ClaimModel.from_segments(emi_header, segments)
+
+    print(claim)
+
+
+def main():
+    # parse_claim_file()
+
+    claim = EMIHeaderFactory.build()
+    test = ClaimModelFactory.build()
+    print(test)
 
     print(claim)
 
