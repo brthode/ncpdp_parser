@@ -21,6 +21,12 @@ class TransactionCode(StrEnum):
     REVERSAL = "B2"
 
 
+class Gender(StrEnum):
+    UNKNOWN = "0"
+    MALE = "1"
+    FEMALE = "2"
+
+
 class Version(StrEnum):
     """Valid version codes for EMI headers."""
 
@@ -102,7 +108,7 @@ class EMIHeader(BaseModel):
         )
 
     @classmethod
-    def from_emi_string(cls, emi_string: str) -> EMIHeader:
+    def parse(cls, emi_string: str) -> EMIHeader:
         """Creates an EMIHeader instance from an EMI string."""
         if len(emi_string) < 31:  # Minimum length for all required fields
             raise ValueError("EMI string too short")
@@ -152,19 +158,19 @@ class InsuranceSegment(SegmentBase):
 class PatientSegment(SegmentBase):
     segment_id: str = "AM01"
 
-    a: str
-    b: str
-    c: str
-    d: str
-    e: str
+    dob: datetime
+    patient_gender: Gender
+    last_name: str
+    first_name: str
+    patient_zip: str  # Include model validation for ZIP code
 
     _key_mapping: dict[str, str] = PrivateAttr(
         default={
-            "C4": "a",
-            "C5": "b",
-            "CA": "c",
-            "CB": "d",
-            "CP": "e",
+            "C4": "dob",
+            "C5": "patient_gender",
+            "CA": "last_name",
+            "CB": "first_name",
+            "CP": "patient_zip",
         }
     )
 
@@ -178,7 +184,15 @@ def parse_segment(
 
     segment_id, *values = raw_segment.split(FIELD_SEPARATOR)
 
-    segment_classes = [InsuranceSegment, PatientSegment]
+    segment_classes = [
+        InsuranceSegment,
+        PatientSegment,
+        ClaimSegment,
+        PricingSegment,
+        PrescriberSegment,
+        PharmacyProviderSegment,
+        ClinicalSegment,
+    ]
 
     for segment_class in segment_classes:
         if segment_class.model_fields.get("segment_id").default == segment_id:
@@ -190,27 +204,119 @@ def parse_segment(
 class ClaimSegment(SegmentBase):
     segment_id: str = "AM07"
 
+    a: str
+    b: str
+    c: str
+    d: str
+    e: str
+    f: str
+    g: str
+    h: str
+    i: str
+    j: str
+    k: str
+    l: str
+
+    _key_mapping: dict[str, str] = PrivateAttr(
+        default={
+            "D2": "a",
+            "E1": "b",
+            "D7": "c",
+            "SE": "d",
+            "D3": "e",
+            "D5": "f",
+            "D6": "g",
+            "D8": "h",
+            "DE": "i",
+            "DJ": "j",
+            "DT": "k",
+            "EB": "l",
+        }
+    )
+
 
 class PricingSegment(SegmentBase):
     segment_id: str = "AM11"
+
+    a: str
+    b: str
+    c: str
+    d: str
+    e: str
+
+    _key_mapping: dict[str, str] = PrivateAttr(
+        default={
+            "D9": "a",
+            "DC": "b",
+            "E3": "c",
+            "DQ": "d",
+            "DU": "e",
+        }
+    )
 
 
 class PrescriberSegment(SegmentBase):
     segment_id: str = "AM03"
 
+    prescriber_id_qualifier: str
+    prescriber_id: str
+
+    _key_mapping: dict[str, str] = PrivateAttr(
+        default={
+            "EZ": "prescriber_id_qualifier",  # Prescriber Identification Qualifier
+            "DB": "prescriber_id",  # Prescriber Identification
+        }
+    )
+
 
 class PharmacyProviderSegment(SegmentBase):
     segment_id: str = "AM06"
+
+    a: str
+
+    _key_mapping: dict[str, str] = PrivateAttr(
+        default={
+            "DZ": "a",
+        }
+    )
 
 
 class ClinicalSegment(SegmentBase):
     segment_id: str = "AM08"
 
+    a: str
+    b: str
+
+    _key_mapping: dict[str, str] = PrivateAttr(
+        default={
+            "7E": "a",
+            "E5": "b",
+        }
+    )
+
 
 class ClaimModel(BaseModel):
-    header: EMIHeader
-    insurance: InsuranceSegment | None = None
-    patient: PatientSegment | None = None
+    header: EMIHeader  # Transaction Header Segment
+    insurance: InsuranceSegment  # Insurance Segment
+    patient: PatientSegment | None = None  # Patient Segment
+    claim: ClaimSegment  # Claim Segment
+    pricing: PricingSegment  # Pricing Segment
+    prescriber: PrescriberSegment | None = None
+    pharmacy_provider: PharmacyProviderSegment | None = None
+    clinical: ClinicalSegment | None = None
+
+    # --- Optional Segments ---
+    # Pharmacy Provider Segment
+    # Prescriber Segment
+    # Coordination of Benefits/Other Payments Segment
+    # Workers’ Compensation Segment
+    # DUR/PPS Segment
+    # Compound Segment
+    # Clinical Segment
+    # Additional Documentation Segment
+    # Facility Segment
+    # Narrative Segment
+    # Intermediary Segment
 
     @classmethod
     def from_segments(cls, header: EMIHeader, segments: list[SegmentBase]) -> ClaimModel:
@@ -220,6 +326,16 @@ class ClaimModel(BaseModel):
                 claim_data["insurance"] = segment
             elif isinstance(segment, PatientSegment):
                 claim_data["patient"] = segment
+            elif isinstance(segment, ClaimSegment):
+                claim_data["claim"] = segment
+            elif isinstance(segment, PricingSegment):
+                claim_data["pricing"] = segment
+            elif isinstance(segment, PrescriberSegment):
+                claim_data["prescriber"] = segment
+            elif isinstance(segment, PharmacyProviderSegment):
+                claim_data["pharmacy_provider"] = segment
+            elif isinstance(segment, ClinicalSegment):
+                claim_data["clinical"] = segment
         return cls(**claim_data)
 
 
@@ -228,7 +344,7 @@ def main():
 
     raw_header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
     header = "".join(raw_header.split())
-    emi_header = EMIHeader.from_emi_string(header)
+    emi_header = EMIHeader.parse(header)
 
     segments = [parse_segment(segment.strip()) for segment in raw_segments]
     claim = ClaimModel.from_segments(emi_header, segments)
