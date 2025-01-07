@@ -14,52 +14,52 @@ GROUP_SEPARATOR = chr(29)  # Group Separator <GS> / <0x1d>
 SEGMENT_SEPARATOR = chr(30)  # Record Separator <RS> / <0x1e>
 
 
-def decode_overpunch(value: str) -> int:
-    overpunch_map = {
-        "0": "0",
-        "1": "1",
-        "2": "2",
-        "3": "3",
-        "4": "4",
-        "5": "5",
-        "6": "6",
-        "7": "7",
-        "8": "8",
-        "9": "9",
-        "{": "0",
-        "A": "1",
-        "B": "2",
-        "C": "3",
-        "D": "4",
-        "E": "5",
-        "F": "6",
-        "G": "7",
-        "H": "8",
-        "I": "9",
-        "}": "0-",
-        "J": "1-",
-        "K": "2-",
-        "L": "3-",
-        "M": "4-",
-        "N": "5-",
-        "O": "6-",
-        "P": "7-",
-        "Q": "8-",
-        "R": "9-",
-    }
+# def decode_overpunch(value: str) -> int:
+#     overpunch_map = {
+#         "0": "0",
+#         "1": "1",
+#         "2": "2",
+#         "3": "3",
+#         "4": "4",
+#         "5": "5",
+#         "6": "6",
+#         "7": "7",
+#         "8": "8",
+#         "9": "9",
+#         "{": "0",
+#         "A": "1",
+#         "B": "2",
+#         "C": "3",
+#         "D": "4",
+#         "E": "5",
+#         "F": "6",
+#         "G": "7",
+#         "H": "8",
+#         "I": "9",
+#         "}": "0-",
+#         "J": "1-",
+#         "K": "2-",
+#         "L": "3-",
+#         "M": "4-",
+#         "N": "5-",
+#         "O": "6-",
+#         "P": "7-",
+#         "Q": "8-",
+#         "R": "9-",
+#     }
 
-    if not value:
-        raise ValueError("Value cannot be empty")
+#     if not value:
+#         raise ValueError("Value cannot be empty")
 
-    sign_char = value[-1]
-    number_part = value[:-1]
-    mapped = overpunch_map.get(sign_char.upper())
-    if mapped is None:
-        raise ValueError(f"Invalid overpunch character: {sign_char}")
+#     sign_char = value[-1]
+#     number_part = value[:-1]
+#     mapped = overpunch_map.get(sign_char.upper())
+#     if mapped is None:
+#         raise ValueError(f"Invalid overpunch character: {sign_char}")
 
-    if "-" in mapped:
-        return -int(number_part + mapped[0])
-    return int(number_part + mapped[0])
+#     if "-" in mapped:
+#         return -int(number_part + mapped[0])
+#     return int(number_part + mapped[0])
 
 
 def encode_overpunch(value: int) -> str:
@@ -325,8 +325,8 @@ class PricingSegment(SegmentBase):
     ingredient_cost_submitted: str  # Overpunch
     dispensing_fee_submitted: str  # Overpunch
     professional_service_fee_submitted: str  # Overpunch
-    gross_amount_due: str
-    other_amount_claimed: str
+    gross_amount_due: str  # Overpunch
+    other_amount_claimed: str  # Overpunch
 
     _key_mapping: dict[str, str] = PrivateAttr(
         default={
@@ -337,6 +337,68 @@ class PricingSegment(SegmentBase):
             "DU": "other_amount_claimed",
         }
     )
+
+    def decode_overpunch(self, value: str) -> int | None:
+        overpunch_map = {
+            "0": "0",
+            "1": "1",
+            "2": "2",
+            "3": "3",
+            "4": "4",
+            "5": "5",
+            "6": "6",
+            "7": "7",
+            "8": "8",
+            "9": "9",
+            "{": "0",
+            "A": "1",
+            "B": "2",
+            "C": "3",
+            "D": "4",
+            "E": "5",
+            "F": "6",
+            "G": "7",
+            "H": "8",
+            "I": "9",
+            "}": "0-",
+            "J": "1-",
+            "K": "2-",
+            "L": "3-",
+            "M": "4-",
+            "N": "5-",
+            "O": "6-",
+            "P": "7-",
+            "Q": "8-",
+            "R": "9-",
+        }
+
+        if not value:
+            return None
+
+        sign_char = value[-1]
+        number_part = value[:-1]
+        mapped = overpunch_map.get(sign_char.upper())
+        if mapped is None:
+            return None  # Optionally raise an error if invalid Overpunch is unacceptable.
+
+        if "-" in mapped:
+            return -int(number_part + mapped[0])
+        return int(number_part + mapped[0])
+
+    def _decoded_fields(self) -> dict[str, int | None]:
+        """Decode Overpunch fields for representation."""
+        return {field: self.decode_overpunch(getattr(self, field)) for field in self._key_mapping.values()}
+
+    def __repr__(self) -> str:
+        decoded = self._decoded_fields()
+        return (
+            f"PricingSegment(segment_id={self.segment_id}, "
+            + ", ".join(f"{field}={value}" for field, value in decoded.items())
+            + ")"
+        )
+
+    def __str__(self) -> str:
+        return self.__repr__()
 
 
 class PrescriberSegment(SegmentBase):
