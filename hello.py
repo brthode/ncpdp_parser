@@ -275,11 +275,25 @@ class ClaimSegment(SegmentBase):
 class PricingSegment(SegmentBase):
     segment_id: str = "AM11"
 
-    ingredient_cost_submitted: str  # Overpunch
-    dispensing_fee_submitted: str  # Overpunch
-    professional_service_fee_submitted: str  # Overpunch
-    gross_amount_due: str  # Overpunch
-    other_amount_claimed: str  # Overpunch
+    ingredient_cost_submitted: Annotated[str, StringConstraints(pattern=r"^\d+[A-IJ-R{}]$")] = Field(
+        description="Ingredient cost in Overpunch format"
+    )
+
+    dispensing_fee_submitted: Annotated[str, StringConstraints(pattern=r"^\d+[A-IJ-R{}]$")] = Field(
+        description="Dispensing fee in Overpunch format"
+    )
+
+    professional_service_fee_submitted: Annotated[str, StringConstraints(pattern=r"^\d+[A-IJ-R{}]$")] = Field(
+        description="Professional service fee in Overpunch format"
+    )
+
+    gross_amount_due: Annotated[str, StringConstraints(pattern=r"^\d+[A-IJ-R{}]$")] = Field(
+        description="Gross amount due in Overpunch format"
+    )
+
+    other_amount_claimed: Annotated[str, StringConstraints(pattern=r"^\d+[A-IJ-R{}]$")] = Field(
+        description="Other amount claimed in Overpunch format"
+    )
 
     _key_mapping: dict[str, str] = PrivateAttr(
         default={
@@ -571,8 +585,8 @@ def main():
     # parse_claim_file()
 
     claim = EMIHeaderFactory.build()
-    test = ClaimModelFactory.build()
-    print(test)
+    builder_claim = ClaimModelFactory.build()
+    print(builder_claim)
 
     print(claim)
 
