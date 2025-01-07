@@ -14,6 +14,84 @@ GROUP_SEPARATOR = chr(29)  # Group Separator <GS> / <0x1d>
 SEGMENT_SEPARATOR = chr(30)  # Record Separator <RS> / <0x1e>
 
 
+def decode_overpunch(value: str) -> int:
+    overpunch_map = {
+        "0": "0",
+        "1": "1",
+        "2": "2",
+        "3": "3",
+        "4": "4",
+        "5": "5",
+        "6": "6",
+        "7": "7",
+        "8": "8",
+        "9": "9",
+        "{": "0",
+        "A": "1",
+        "B": "2",
+        "C": "3",
+        "D": "4",
+        "E": "5",
+        "F": "6",
+        "G": "7",
+        "H": "8",
+        "I": "9",
+        "}": "0-",
+        "J": "1-",
+        "K": "2-",
+        "L": "3-",
+        "M": "4-",
+        "N": "5-",
+        "O": "6-",
+        "P": "7-",
+        "Q": "8-",
+        "R": "9-",
+    }
+
+    if not value:
+        raise ValueError("Value cannot be empty")
+
+    sign_char = value[-1]
+    number_part = value[:-1]
+    mapped = overpunch_map.get(sign_char.upper())
+    if mapped is None:
+        raise ValueError(f"Invalid overpunch character: {sign_char}")
+
+    if "-" in mapped:
+        return -int(number_part + mapped[0])
+    return int(number_part + mapped[0])
+
+
+def encode_overpunch(value: int) -> str:
+    overpunch_map = {
+        0: "{",
+        1: "A",
+        2: "B",
+        3: "C",
+        4: "D",
+        5: "E",
+        6: "F",
+        7: "G",
+        8: "H",
+        9: "I",
+        -0: "}",
+        -1: "J",
+        -2: "K",
+        -3: "L",
+        -4: "M",
+        -5: "N",
+        -6: "O",
+        -7: "P",
+        -8: "Q",
+        -9: "R",
+    }
+
+    str_value = str(abs(value))
+    last_digit = int(str_value[-1]) * (1 if value >= 0 else -1)
+    encoded_char = overpunch_map[last_digit]
+    return str_value[:-1] + encoded_char
+
+
 class TransactionCode(StrEnum):
     """Valid transaction codes for EMI headers."""
 
@@ -204,33 +282,39 @@ def parse_segment(
 class ClaimSegment(SegmentBase):
     segment_id: str = "AM07"
 
-    a: str
-    b: str
-    c: str
-    d: str
-    e: str
-    f: str
-    g: str
-    h: str
-    i: str
-    j: str
-    k: str
-    l: str
+    prescription_service_reference_number_qualifier: str
+    prescription_service_reference_number: str
+    product_service_id_qualifier: str
+    product_service_id: str
+    quantity_dispensed: str
+    days_supply: str
+    daw_product_selection_code: str
+    date_written: str
+    refills_authorized: str
+    refill_number: str
+    dateof_service: str
+    levelof_service: str
+    prescription_origin_code: str
+    submission_clarification_code: str
+    other_coverage_code: str
 
     _key_mapping: dict[str, str] = PrivateAttr(
         default={
-            "D2": "a",
-            "E1": "b",
-            "D7": "c",
-            "SE": "d",
-            "D3": "e",
-            "D5": "f",
-            "D6": "g",
-            "D8": "h",
-            "DE": "i",
-            "DJ": "j",
-            "DT": "k",
-            "EB": "l",
+            "EM": "prescription_service_reference_number_qualifier",
+            "D2": "prescription_service_reference_number",
+            "E1": "product_service_id_qualifier",
+            "D7": "product_service_id",
+            "SE": "quantity_dispensed",
+            "E7": "days_supply",
+            "D3": "daw_product_selection_code",
+            "D5": "date_written",
+            "D6": "refills_authorized",
+            "D8": "refill_number",
+            "DE": "dateof_service",
+            "DF": "levelof_service",
+            "DJ": "prescription_origin_code",
+            "DT": "submission_clarification_code",
+            "EB": "other_coverage_code",
         }
     )
 
@@ -238,19 +322,19 @@ class ClaimSegment(SegmentBase):
 class PricingSegment(SegmentBase):
     segment_id: str = "AM11"
 
-    a: str
-    b: str
-    c: str
-    d: str
-    e: str
+    ingredient_cost_submitted: str  # Overpunch
+    dispensing_fee_submitted: str  # Overpunch
+    professional_service_fee_submitted: str  # Overpunch
+    gross_amount_due: str
+    other_amount_claimed: str
 
     _key_mapping: dict[str, str] = PrivateAttr(
         default={
-            "D9": "a",
-            "DC": "b",
-            "E3": "c",
-            "DQ": "d",
-            "DU": "e",
+            "D9": "ingredient_cost_submitted",
+            "DC": "dispensing_fee_submitted",
+            "E3": "professional_service_fee_submitted",
+            "DQ": "gross_amount_due",
+            "DU": "other_amount_claimed",
         }
     )
 
@@ -272,11 +356,11 @@ class PrescriberSegment(SegmentBase):
 class PharmacyProviderSegment(SegmentBase):
     segment_id: str = "AM06"
 
-    a: str
+    group_id: str
 
     _key_mapping: dict[str, str] = PrivateAttr(
         default={
-            "DZ": "a",
+            "DZ": "group_id",
         }
     )
 
@@ -284,14 +368,11 @@ class PharmacyProviderSegment(SegmentBase):
 class ClinicalSegment(SegmentBase):
     segment_id: str = "AM08"
 
-    a: str
-    b: str
+    other_payer_coverage_type: str
+    other_payer_id_qualifier: str
 
     _key_mapping: dict[str, str] = PrivateAttr(
-        default={
-            "7E": "a",
-            "E5": "b",
-        }
+        default={"7E": "other_payer_coverage_type", "E5": "other_payer_id_qualifier"}
     )
 
 
