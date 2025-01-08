@@ -94,6 +94,7 @@ class EMIHeader(BaseModel):
     YYYYMMDD = Date
     """
 
+    # TODO: Need to not strip out whitespace but rather use fixed width values and then trip out whitespace.
     rxbin: Annotated[str, StringConstraints(pattern=r"^\d{6}$")] = Field(description="6-digit BIN number")
     version: Version = Field(description="Version code (D0 or 51)")
     transaction_code: TransactionCode = Field(description="Transaction type (B1 for submission, B2 for reversal)")
@@ -325,6 +326,9 @@ class ClaimSegment(SegmentBase):
 class PricingSegment(SegmentBase):
     segment_id: str = "AM11"
 
+    # Implied decimle point
+    # TODO: We should display this as flaots
+
     ingredient_cost_submitted: Annotated[str, StringConstraints(pattern=r"^\d+[A-IJ-R{}]$")] = Field(
         description="Ingredient cost in Overpunch format"
     )
@@ -503,13 +507,15 @@ class ClaimModel(BaseModel):
     pharmacy_provider: PharmacyProviderSegment | None = None
     clinical: ClinicalSegment | None = None
 
+    # Future segments
+    # DUR/PPS Segment - Basic clinical information
+    # Compound Segment
+
     # --- Optional Segments ---
     # Pharmacy Provider Segment
     # Prescriber Segment
     # Coordination of Benefits/Other Payments Segment
     # Workers’ Compensation Segment
-    # DUR/PPS Segment
-    # Compound Segment
     # Clinical Segment
     # Additional Documentation Segment
     # Facility Segment
@@ -536,6 +542,20 @@ class ClaimModel(BaseModel):
                 claim_data["clinical"] = segment
         return cls(**claim_data)
 
+    def serialize(self) -> str:
+        """Serializes the ClaimModel to a string."""
+        segments = [
+            self.header.to_emi_string(),
+            self.insurance.serialize(),
+            self.patient.serialize(),
+            self.claim.serialize(),
+            self.pricing.serialize(),
+            self.prescriber.serialize(),
+            self.pharmacy_provider.serialize(),
+            self.clinical.serialize(),
+        ]
+        return SEGMENT_SEPARATOR.join(segments)
+
 
 class EMIHeaderFactory(ModelFactory[EMIHeader]):
     """Factory for generating test EMIHeader instances."""
@@ -551,6 +571,7 @@ class InsuranceSegmentFactory(ModelFactory[InsuranceSegment]):
     """Factory for generating test InsuranceSegment instances."""
 
     __model__ = InsuranceSegment
+    segment_id = "AM04"
 
     # first_name = "John"
     # last_name = "Doe"
@@ -563,6 +584,7 @@ class PatientSegmentFactory(ModelFactory[PatientSegment]):
     """Factory for generating test PatientSegment instances."""
 
     __model__ = PatientSegment
+    segment_id = "AM01"
 
     # dob = datetime
 
@@ -571,6 +593,7 @@ class ClaimSegmentFactory(ModelFactory[ClaimSegment]):
     """Factory for generating test ClaimSegment instances."""
 
     __model__ = ClaimSegment
+    segment_id: str = "AM07"
 
     # prescription_service_reference_number_qualifier = "EM"
     # prescription_service_reference_number = "1234567890"
@@ -593,6 +616,7 @@ class PricingSegmentFactory(ModelFactory[PricingSegment]):
     """Factory for generating test PricingSegment instances."""
 
     __model__ = PricingSegment
+    segment_id: str = "AM11"
 
     # ingredient_cost_submitted = "1234567890"
     # dispensing_fee_submitted = "1234567890"
@@ -605,7 +629,7 @@ class PrescriberSegmentFactory(ModelFactory[PrescriberSegment]):
     """Factory for generating test PrescriberSegment instances."""
 
     __model__ = PrescriberSegment
-
+    segment_id = "AM03"
     # prescriber_id_qualifier = "EZ"
     # prescriber_id = "1234567890"
 
@@ -614,6 +638,7 @@ class PharmacyProviderSegmentFactory(ModelFactory[PharmacyProviderSegment]):
     """Factory for generating test PharmacyProviderSegment instances."""
 
     __model__ = PharmacyProviderSegment
+    segment_id = "AM06"
 
     # group_id = "1234567890"
 
@@ -622,6 +647,7 @@ class ClinicalSegmentFactory(ModelFactory[ClinicalSegment]):
     """Factory for generating test ClinicalSegment instances."""
 
     __model__ = ClinicalSegment
+    segment_id = "AM08"
 
     # other_payer_coverage_type = "7E"
     # other_payer_id_qualifier = "E5"
@@ -679,6 +705,60 @@ def main():
     print(builder_claim)
 
     print(claim)
+
+    # Produce a test claim using the factory
+    original_claim = ClaimModelFactory.build()
+    original_serialized = original_claim.serialize()
+
+    # Parse the serialized claim
+    raw_header, *raw_segments = original_serialized.split(SEGMENT_SEPARATOR)
+    header = "".join(raw_header.split())
+    emi_header = EMIHeader.parse(header)
+
+    # TODO:
+
+    # segments = [parse_segment(segment.strip()) for segment in raw_segments]
+    segments: list[SegmentBase] = []
+    for segment in raw_segments:
+        trimmed_segment = segment.strip()
+        if segment_id := trimmed_segment.split(FIELD_SEPARATOR)[0]:
+            match segment_id:
+                case "AM04":  # Insurance
+                    segments.append(parse_segment(trimmed_segment))
+                case "AM01":  # Patient
+                    segments.append(parse_segment(trimmed_segment))
+                case "AM07":  # Claim
+                    segments.append(parse_segment(trimmed_segment))
+                case "AM11":  # Pricing
+                    segments.append(parse_segment(trimmed_segment))
+                case "AM03":  # Prescriber
+                    segments.append(parse_segment(trimmed_segment))
+                case "AM06":  # Pharmacy Provider
+                    segments.append(parse_segment(trimmed_segment))
+                case "AM08":  # Clinical
+                    segments.append(parse_segment(trimmed_segment))
+    parsed_claim = ClaimModel.from_segments(emi_header, segments)
+
+    # Compare the claims
+    #  TODO: Need to ensure we are consistant with the timezone info we parse as and generate as.
+    # Mismatch in datetime format
+
+    assert original_claim.insurance == parsed_claim.insurance
+
+    # Parsed claim = dob=datetime.datetime(1970, 8, 21, 12, 50, 7, tzinfo=TzInfo(UTC))
+    # Original Claim = dob=datetime.datetime(2009, 10, 7, 2, 42, 47, 363803)
+    assert original_claim.patient == parsed_claim.patient
+    assert original_claim.claim == parsed_claim.claim
+    assert original_claim.pricing == parsed_claim.pricing
+    assert original_claim.prescriber == parsed_claim.prescriber
+    assert original_claim.pharmacy_provider == parsed_claim.pharmacy_provider
+    assert original_claim.clinical == parsed_claim.clinical
+
+    # Original = date=datetime.datetime(2025, 1, 8, 11, 24, 4, 875863))
+    # Parsed = date=datetime.datetime(2025, 1, 8, 0, 0))
+    assert original_claim.header == parsed_claim.header
+
+    assert original_claim == parsed_claim, "Parsed claim does not match original"
 
 
 if __name__ == "__main__":
