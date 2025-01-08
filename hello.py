@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pathlib
-from abc import ABC
+from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any
@@ -161,12 +161,28 @@ class SegmentBase(ABC, BaseModel):
     def get_key_mapping(cls) -> dict[str, str]:
         return cls._key_mapping
 
+    @abstractmethod
+    def serialize(self) -> str:
+        raise NotImplementedError
+
 
 def map_values_to_keys(segment_mapping: dict[str, str], values: list[str]) -> dict[str, str]:
     return {segment_mapping[prefix]: value[2:] for value in values if (prefix := value[:2]) in segment_mapping}
 
 
 class InsuranceSegment(SegmentBase):
+    def serialize(self) -> str:
+        """Serializes the InsuranceSegment to a string."""
+        values = [
+            self.segment_id,
+            f"C1{self.first_name}",
+            f"C2{self.internal_control_number}",
+            f"C3{self.person_code}",
+            f"A6{self.cardholder_id}",
+            f"A7{self.last_name}",
+        ]
+        return FIELD_SEPARATOR.join(values)
+
     segment_id: str = "AM04"
 
     first_name: str
@@ -204,6 +220,18 @@ class PatientSegment(SegmentBase):
             "CP": "patient_zip",
         }
     )
+
+    def serialize(self) -> str:
+        """Serializes the PatientSegment to a string."""
+        values = [
+            self.segment_id,
+            f"C4{self.dob.strftime('%Y%m%d')}",
+            f"C5{self.patient_gender}",
+            f"CA{self.last_name}",
+            f"CB{self.first_name}",
+            f"CP{self.patient_zip}",
+        ]
+        return FIELD_SEPARATOR.join(values)
 
 
 @staticmethod
@@ -270,6 +298,28 @@ class ClaimSegment(SegmentBase):
             "EB": "other_coverage_code",
         }
     )
+
+    def serialize(self) -> str:
+        """Serializes the ClaimSegment to a string."""
+        values = [
+            self.segment_id,
+            f"EM{self.prescription_service_reference_number_qualifier}",
+            f"D2{self.prescription_service_reference_number}",
+            f"E1{self.product_service_id_qualifier}",
+            f"D7{self.product_service_id}",
+            f"SE{self.quantity_dispensed}",
+            f"E7{self.days_supply}",
+            f"D3{self.daw_product_selection_code}",
+            f"D5{self.date_written}",
+            f"D6{self.refills_authorized}",
+            f"D8{self.refill_number}",
+            f"DE{self.dateof_service}",
+            f"DF{self.levelof_service}",
+            f"DJ{self.prescription_origin_code}",
+            f"DT{self.submission_clarification_code}",
+            f"EB{self.other_coverage_code}",
+        ]
+        return FIELD_SEPARATOR.join(values)
 
 
 class PricingSegment(SegmentBase):
@@ -367,6 +417,18 @@ class PricingSegment(SegmentBase):
     def __str__(self) -> str:
         return self.__repr__()
 
+    def serialize(self) -> str:
+        """Serializes the PricingSegment to a string."""
+        values = [
+            self.segment_id,
+            f"D9{self.ingredient_cost_submitted}",
+            f"DC{self.dispensing_fee_submitted}",
+            f"E3{self.professional_service_fee_submitted}",
+            f"DQ{self.gross_amount_due}",
+            f"DU{self.other_amount_claimed}",
+        ]
+        return FIELD_SEPARATOR.join(values)
+
 
 class PrescriberSegment(SegmentBase):
     segment_id: str = "AM03"
@@ -381,6 +443,15 @@ class PrescriberSegment(SegmentBase):
         }
     )
 
+    def serialize(self) -> str:
+        """Serializes the PrescriberSegment to a string."""
+        values = [
+            self.segment_id,
+            f"EZ{self.prescriber_id_qualifier}",
+            f"DB{self.prescriber_id}",
+        ]
+        return FIELD_SEPARATOR.join(values)
+
 
 class PharmacyProviderSegment(SegmentBase):
     segment_id: str = "AM06"
@@ -393,6 +464,14 @@ class PharmacyProviderSegment(SegmentBase):
         }
     )
 
+    def serialize(self) -> str:
+        """Serializes the PharmacyProviderSegment to a string."""
+        values = [
+            self.segment_id,
+            f"DZ{self.group_id}",
+        ]
+        return FIELD_SEPARATOR.join(values)
+
 
 class ClinicalSegment(SegmentBase):
     segment_id: str = "AM08"
@@ -403,6 +482,15 @@ class ClinicalSegment(SegmentBase):
     _key_mapping: dict[str, str] = PrivateAttr(
         default={"7E": "other_payer_coverage_type", "E5": "other_payer_id_qualifier"}
     )
+
+    def serialize(self) -> str:
+        """Serializes the ClinicalSegment to a string."""
+        values = [
+            self.segment_id,
+            f"7E{self.other_payer_coverage_type}",
+            f"E5{self.other_payer_id_qualifier}",
+        ]
+        return FIELD_SEPARATOR.join(values)
 
 
 class ClaimModel(BaseModel):
@@ -554,7 +642,7 @@ class ClaimModelFactory(ModelFactory[ClaimModel]):
     clinical = ClinicalSegmentFactory.build()
 
     @classmethod
-    def build(cls) -> ClaimModel:
+    def build(cls, *args, **kwargs) -> ClaimModel:
         """Builds a ClaimModel instance with all segments."""
         return cls.__model__(
             header=cls.header,
@@ -565,6 +653,8 @@ class ClaimModelFactory(ModelFactory[ClaimModel]):
             prescriber=cls.prescriber,
             pharmacy_provider=cls.pharmacy_provider,
             clinical=cls.clinical,
+            *args,
+            **kwargs,
         )
 
 
@@ -582,7 +672,7 @@ def parse_claim_file():
 
 
 def main():
-    # parse_claim_file()
+    parse_claim_file()
 
     claim = EMIHeaderFactory.build()
     builder_claim = ClaimModelFactory.build()
