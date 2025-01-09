@@ -9,7 +9,7 @@ from typing import Annotated, Any
 from polyfactory.factories.pydantic_factory import ModelFactory
 from pydantic import BaseModel, Field, PrivateAttr, StringConstraints, field_validator, model_validator
 
-HEADER_LENGTH = 31
+EMI_HEADER_LENGTH = 56
 FIELD_SEPARATOR = chr(28)  # File Separator <FS> / <0x1c>
 GROUP_SEPARATOR = chr(29)  # Group Separator <GS> / <0x1d>
 SEGMENT_SEPARATOR = chr(30)  # Record Separator <RS> / <0x1e>
@@ -98,6 +98,8 @@ class EMIHeader(BaseModel):
     rxbin: Annotated[str, StringConstraints(pattern=r"^\d{6}$")] = Field(description="6-digit BIN number")
     version: Version = Field(description="Version code (D0 or 51)")
     transaction_code: TransactionCode = Field(description="Transaction type (B1 for submission, B2 for reversal)")
+
+    # TODO: PCN / Processor Control Number can be empty
     processor_control: Annotated[str, StringConstraints(pattern=r"^\d{10}$")] = Field(
         description="10-digit processor control number"
     )
@@ -142,7 +144,7 @@ class EMIHeader(BaseModel):
     @classmethod
     def parse(cls, emi_string: str) -> EMIHeader:
         """Creates an EMIHeader instance from an EMI string."""
-        if len(emi_string) < 31:  # Minimum length for all required fields
+        if len(emi_string) != EMI_HEADER_LENGTH:  # Minimum length for all required fields
             raise ValueError("EMI string too short")
 
         return cls(
@@ -150,8 +152,12 @@ class EMIHeader(BaseModel):
             version=emi_string[6:8].strip(),
             transaction_code=emi_string[8:10].strip(),
             processor_control=emi_string[10:20].strip(),
-            count=emi_string[20:23].strip(),
-            date=emi_string[23:31].strip(),
+            trancount=emi_string[20:21],
+            # count=emi_string[20:23].strip(),
+            sp_id_qual=emi_string[21:23],
+            sp_id=emi_string[23:38].strip(),
+            date=emi_string[38:46],
+            cert_id=emi_string[46:56],
         )
 
 
@@ -671,6 +677,8 @@ class ClaimModelFactory(ModelFactory[ClaimModel]):
     def build(cls, *args, **kwargs) -> ClaimModel:
         """Builds a ClaimModel instance with all segments."""
         return cls.__model__(
+            *args,
+            **kwargs,
             header=cls.header,
             insurance=cls.insurance,
             patient=cls.patient,
@@ -679,16 +687,13 @@ class ClaimModelFactory(ModelFactory[ClaimModel]):
             prescriber=cls.prescriber,
             pharmacy_provider=cls.pharmacy_provider,
             clinical=cls.clinical,
-            *args,
-            **kwargs,
         )
 
 
 def parse_claim_file():
     raw_claim_data = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
 
-    raw_header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
-    header = "".join(raw_header.split())
+    header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
     emi_header = EMIHeader.parse(header)
 
     segments = [parse_segment(segment.strip()) for segment in raw_segments]
@@ -712,8 +717,8 @@ def main():
 
     # Parse the serialized claim
     raw_header, *raw_segments = original_serialized.split(SEGMENT_SEPARATOR)
-    header = "".join(raw_header.split())
-    emi_header = EMIHeader.parse(header)
+    # header = "".join(raw_header.split())
+    emi_header = EMIHeader.parse(raw_header)
 
     # TODO:
 
