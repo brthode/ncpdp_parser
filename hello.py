@@ -82,29 +82,21 @@ class Format(BaseModel):
 
 
 class EMIHeader(BaseModel):
-    """
-    Represents an EMI header with strict format requirements.
-
-    Format:
-    DDDDDD = RXBin (6 digits) Issuer Identification Number / Bank Identification Number
-    AA = Version (D0 or 51)
-    BN = Transaction Code (B1 or B2)
-    DDDDDDDDDD = Processor Control # (10 digits)
-    DDD = Count (3 digits, 001-999)
-    YYYYMMDD = Date
-    """
-
     # TODO: Need to not strip out whitespace but rather use fixed width values and then trip out whitespace.
     rxbin: Annotated[str, StringConstraints(pattern=r"^\d{6}$")] = Field(description="6-digit BIN number")
     version: Version = Field(description="Version code (D0 or 51)")
     transaction_code: TransactionCode = Field(description="Transaction type (B1 for submission, B2 for reversal)")
 
-    # TODO: PCN / Processor Control Number can be empty
-    processor_control: Annotated[str, StringConstraints(pattern=r"^\d{10}$")] = Field(
-        description="10-digit processor control number"
-    )
-    count: Annotated[str, StringConstraints(pattern=r"^(?:0\d{2}|[1-9]\d{2})$")] = Field(
-        description="3-digit count between 001 and 999"
+    processor_control: str | None = Annotated[
+        str,
+        StringConstraints(
+            min_length=1,
+            max_length=10,
+            pattern=r"^\d{1,10}$",  # Matches 1 to 10 digits.
+        ),
+    ]
+    count: Annotated[str, StringConstraints(pattern=r"^[1-9]$")] = Field(
+        description="Single digit count between 1 and 9"
     )
     date: datetime = Field(description="Date in YYYYMMDD format")
 
@@ -152,8 +144,7 @@ class EMIHeader(BaseModel):
             version=emi_string[6:8].strip(),
             transaction_code=emi_string[8:10].strip(),
             processor_control=emi_string[10:20].strip(),
-            trancount=emi_string[20:21],
-            # count=emi_string[20:23].strip(),
+            count=emi_string[20:21],
             sp_id_qual=emi_string[21:23],
             sp_id=emi_string[23:38].strip(),
             date=emi_string[38:46],
