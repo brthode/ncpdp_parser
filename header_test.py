@@ -8,8 +8,8 @@ from typing import NamedTuple, Self
 class PaddingDirection(StrEnum):
     """Direction to apply padding for fixed width fields"""
 
-    LEFT = "left"  # Pad with spaces on the left
-    RIGHT = "right"  # Pad with spaces on the right
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class NCPDPPosition(NamedTuple):
@@ -17,7 +17,7 @@ class NCPDPPosition(NamedTuple):
 
     start: int
     length: int
-    padding: PaddingDirection = PaddingDirection.LEFT  # Default to left padding
+    padding: PaddingDirection = PaddingDirection.LEFT
 
     @property
     def end(self) -> int:
@@ -34,23 +34,22 @@ class NCPDPPosition(NamedTuple):
             raise ValueError(f"Value '{value}' exceeds maximum length of {self.length}")
 
         if self.padding == PaddingDirection.LEFT:
-            return value.rjust(self.length)  # Right-justify with left padding
-        return value.ljust(self.length)  # Left-justify with right padding
+            return value.rjust(self.length)
+        return value.ljust(self.length)
 
 
-# Constants for NCPDP fixed width format
 class NCPDPFormat:
     """NCPDP fixed width format field positions and lengths"""
 
-    IIN = NCPDPPosition(0, 6, PaddingDirection.RIGHT)  # Issuer Identification Number - left justified
-    VERSION = NCPDPPosition(6, 2)  # Version Number - right justified
-    TRANSACTION_CODE = NCPDPPosition(8, 2)  # Transaction Code - right justified
-    PCN = NCPDPPosition(10, 10, PaddingDirection.RIGHT)  # Processor Control Number - left justified
-    TRANSACTION_COUNT = NCPDPPosition(20, 1)  # Transaction Count - right justified
-    SERVICE_PROVIDER_ID_QUAL = NCPDPPosition(21, 2)  # Service Provider ID Qualifier - right justified
-    SERVICE_PROVIDER_ID = NCPDPPosition(23, 15, PaddingDirection.RIGHT)  # Service Provider ID - left justified
-    SERVICE_DATE = NCPDPPosition(38, 8)  # Service Date - right justified
-    CERTIFICATION_ID = NCPDPPosition(46, 10, PaddingDirection.RIGHT)  # Certification ID - left justified
+    IIN = NCPDPPosition(0, 6, PaddingDirection.RIGHT)
+    VERSION = NCPDPPosition(6, 2)
+    TRANSACTION_CODE = NCPDPPosition(8, 2)
+    PCN = NCPDPPosition(10, 10, PaddingDirection.RIGHT)
+    TRANSACTION_COUNT = NCPDPPosition(20, 1)
+    SERVICE_PROVIDER_ID_QUAL = NCPDPPosition(21, 2)
+    SERVICE_PROVIDER_ID = NCPDPPosition(23, 15, PaddingDirection.RIGHT)
+    SERVICE_DATE = NCPDPPosition(38, 8)
+    CERTIFICATION_ID = NCPDPPosition(46, 10, PaddingDirection.RIGHT)
 
     @classmethod
     def total_width(cls) -> int:
@@ -78,12 +77,12 @@ class NCPDPHeader:
     iin: str  # Issuer Identification Number
     version: str  # Version Number
     transaction_code: str  # Transaction Code
-    pcn: str | None  # Processor Control Number
+    pcn: str  # Processor Control Number (Can be empty)
     transaction_count: str  # Transaction Count
     service_provider_id_qual: str  # Service Provider ID Qualifier
     service_provider_id: str  # Service Provider ID
     service_date: str  # Service Date
-    certification_id: str  # Certification ID
+    certification_id: str  # Certification ID (Can be empty)
 
     @classmethod
     def parse(cls, emi_string: str) -> Self:
@@ -121,26 +120,19 @@ class NCPDPHeader:
         )
 
 
-# Example usage:
 def test_parsing_and_serialization() -> None:
     """Example of parsing and serializing NCPDP header"""
-    # Sample input string
-    # sample_input = "123456D0B11790887081001ABCD1234567890120240108CERT123456"
     sample_input = "024368D0B1          1011790887081     20231110          "
 
-    # Parse the input
     header = NCPDPHeader.parse(sample_input)
 
-    # Serialize back to string
     output = header.serialize()
 
-    # Verify round-trip
     print("Original:", sample_input)
     print("Serialized:", output)
     print("Lengths match:", len(sample_input) == len(output))
     print("Strings match:", sample_input == output)
 
-    # Print individual fields for verification
     print("\nParsed fields:")
     print(f"IIN: '{header.iin}'")
     print(f"Version: '{header.version}'")
