@@ -61,8 +61,8 @@ class Gender(StrEnum):
 class Version(StrEnum):
     """Valid version codes for EMI headers."""
 
-    D0 = "D0"  # Current version code
-    V51 = "51"  # Legacy version code
+    MODERN = "D0"  # Current version code
+    LEGACY = "51"  # Legacy version code
 
 
 class Format(BaseModel):
@@ -82,7 +82,6 @@ class Format(BaseModel):
 
 
 class EMIHeader(BaseModel):
-    # TODO: Need to not strip out whitespace but rather use fixed width values and then trip out whitespace.
     rxbin: Annotated[str, StringConstraints(pattern=r"^\d{6}$")] = Field(description="6-digit BIN number")
     version: Version = Field(description="Version code (D0 or 51)")
     transaction_code: TransactionCode = Field(description="Transaction type (B1 for submission, B2 for reversal)")
@@ -136,7 +135,7 @@ class EMIHeader(BaseModel):
     @classmethod
     def parse(cls, emi_string: str) -> EMIHeader:
         """Creates an EMIHeader instance from an EMI string."""
-        if len(emi_string) != EMI_HEADER_LENGTH:  # Minimum length for all required fields
+        if len(emi_string) != EMI_HEADER_LENGTH:
             raise ValueError("EMI string too short")
 
         return cls(
@@ -396,8 +395,8 @@ class PricingSegment(SegmentBase):
         sign_char = value[-1]
         number_part = value[:-1]
         mapped = overpunch_map.get(sign_char.upper())
-        if mapped is None:
-            return None  # Optionally raise an error if invalid Overpunch is unacceptable.
+        if mapped is None:  # Invalid overpunch character
+            return None  # TODO: Raise error?
 
         if "-" in mapped:
             return -int(number_part + mapped[0])
@@ -559,9 +558,9 @@ class EMIHeaderFactory(ModelFactory[EMIHeader]):
 
     __model__ = EMIHeader
 
-    version = Version.D0  # Use modern version
+    version = Version.MODERN  # Use modern version
     transaction_code = TransactionCode.SUBMISSION  # Use submission transaction code
-    date = datetime.now()  # Use current date
+    date = datetime.now().strftime("%Y%m%d")
 
 
 class InsuranceSegmentFactory(ModelFactory[InsuranceSegment]):
@@ -706,14 +705,10 @@ def main():
     original_claim = ClaimModelFactory.build()
     original_serialized = original_claim.serialize()
 
-    # Parse the serialized claim
-    raw_header, *raw_segments = original_serialized.split(SEGMENT_SEPARATOR)
-    # header = "".join(raw_header.split())
-    emi_header = EMIHeader.parse(raw_header)
+    # Then parse the claim back into a model
+    header, *raw_segments = original_serialized.split(SEGMENT_SEPARATOR)
+    emi_header = EMIHeader.parse(header)
 
-    # TODO:
-
-    # segments = [parse_segment(segment.strip()) for segment in raw_segments]
     segments: list[SegmentBase] = []
     for segment in raw_segments:
         trimmed_segment = segment.strip()
@@ -735,14 +730,8 @@ def main():
                     segments.append(parse_segment(trimmed_segment))
     parsed_claim = ClaimModel.from_segments(emi_header, segments)
 
-    # Compare the claims
-    #  TODO: Need to ensure we are consistant with the timezone info we parse as and generate as.
-    # Mismatch in datetime format
-
     assert original_claim.insurance == parsed_claim.insurance
 
-    # Parsed claim = dob=datetime.datetime(1970, 8, 21, 12, 50, 7, tzinfo=TzInfo(UTC))
-    # Original Claim = dob=datetime.datetime(2009, 10, 7, 2, 42, 47, 363803)
     assert original_claim.patient == parsed_claim.patient
     assert original_claim.claim == parsed_claim.claim
     assert original_claim.pricing == parsed_claim.pricing
@@ -750,10 +739,7 @@ def main():
     assert original_claim.pharmacy_provider == parsed_claim.pharmacy_provider
     assert original_claim.clinical == parsed_claim.clinical
 
-    # Original = date=datetime.datetime(2025, 1, 8, 11, 24, 4, 875863))
-    # Parsed = date=datetime.datetime(2025, 1, 8, 0, 0))
     assert original_claim.header == parsed_claim.header
-
     assert original_claim == parsed_claim, "Parsed claim does not match original"
 
 
