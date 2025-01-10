@@ -16,6 +16,7 @@ dev = [
     "ipykernel>=6.29.5",
     "pyflakes>=3.2.0",
     "pyright>=1.1.391",
+    "pytest>=8.3.4",
     "ruff>=0.8.4",
     "vulture>=2.14",
 ]

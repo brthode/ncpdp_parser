@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pathlib
-import random
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import StrEnum
@@ -104,7 +102,7 @@ class NCPDPPosition(NamedTuple):
 class NCPDPFormat:
     """NCPDP fixed width format field positions and lengths"""
 
-    IIN = NCPDPPosition(0, 6, PaddingDirection.RIGHT)
+    RXBIN = NCPDPPosition(0, 6, PaddingDirection.RIGHT)
     VERSION = NCPDPPosition(6, 2)
     TRANSACTION_CODE = NCPDPPosition(8, 2)
     PCN = NCPDPPosition(10, 10, PaddingDirection.RIGHT)
@@ -120,7 +118,7 @@ class NCPDPFormat:
         return max(
             pos.end
             for pos in [
-                cls.IIN,
+                cls.RXBIN,
                 cls.VERSION,
                 cls.TRANSACTION_CODE,
                 cls.PCN,
@@ -136,24 +134,27 @@ class NCPDPFormat:
 class NCPDPClaimHeader(BaseModel):
     """NCPDP header fields with parsing and serialization"""
 
-    iin: Annotated[str, StringConstraints(pattern=r"^\d{6}$")] = Field(
+    rxbin: Annotated[str, StringConstraints(pattern=r"^\d{6}$")] = Field(
         description="6-digit BIN number"
     )  # Issuer Identification Number
-    version: str  # Version Number
-    transaction_code: str  # Transaction Code
+
+    version: Version = Field(description="Version code (D0 or 51)")  # Version Number
+
+    transaction_code: TransactionCode = Field(description="Transaction type (B1 for submission, B2 for reversal)")
+
     pcn: str | None = Field(default=None, max_length=10)
-    #     description="10-character processor control number that can be spaces and/or digits",
-    #     min_length=10,
-    #     max_length=10,
-    # )
+
     transaction_count: Annotated[str, StringConstraints(pattern=r"^[1-9]$")]  # Transaction Count
+
     service_provider_id_qual: Annotated[
         str, StringConstraints(pattern=r"^[0-9][0-9]?$")
     ]  # Service Provider ID Qualifier
     service_provider_id: str | None = Field(default=None, max_length=15)  # Service Provider ID
+
     service_date: Annotated[str, StringConstraints(pattern=r"^\d{4}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$")]
     # Service Date
-    certification_id: str = Field(default=None, max_length=10)  # Certification ID (Can be empty)
+
+    certification_id: str | None = Field(default=None, max_length=10)  # Certification ID
 
     @classmethod
     def parse(cls, emi_string: str) -> Self:
@@ -162,23 +163,36 @@ class NCPDPClaimHeader(BaseModel):
         if len(emi_string) < format.total_width():
             raise ValueError(f"Input string too short. Expected at least {format.total_width()} characters")
 
+        pcn = None if format.PCN.slice(emi_string).strip() == "" else format.PCN.slice(emi_string)
+        service_provider_id = (
+            None
+            if format.SERVICE_PROVIDER_ID.slice(emi_string).strip() == ""
+            else format.SERVICE_PROVIDER_ID.slice(emi_string)
+        )
+
+        certification_id = (
+            None
+            if format.CERTIFICATION_ID.slice(emi_string).strip() == ""
+            else format.CERTIFICATION_ID.slice(emi_string)
+        )
+
         return cls(
-            iin=format.IIN.slice(emi_string),
+            rxbin=format.RXBIN.slice(emi_string),
             version=format.VERSION.slice(emi_string),
             transaction_code=format.TRANSACTION_CODE.slice(emi_string),
-            pcn=format.PCN.slice(emi_string),
+            pcn=pcn,
             transaction_count=format.TRANSACTION_COUNT.slice(emi_string),
             service_provider_id_qual=format.SERVICE_PROVIDER_ID_QUAL.slice(emi_string),
-            service_provider_id=format.SERVICE_PROVIDER_ID.slice(emi_string),
+            service_provider_id=service_provider_id,
             service_date=format.SERVICE_DATE.slice(emi_string),
-            certification_id=format.CERTIFICATION_ID.slice(emi_string),
+            certification_id=certification_id,
         )
 
     def serialize(self) -> str:
         """Convert header fields back to fixed-width format string"""
         format = NCPDPFormat
         return (
-            format.IIN.pad(self.iin)
+            format.RXBIN.pad(self.rxbin)
             + format.VERSION.pad(self.version)
             + format.TRANSACTION_CODE.pad(self.transaction_code)
             + format.PCN.pad(self.pcn)
@@ -188,24 +202,6 @@ class NCPDPClaimHeader(BaseModel):
             + format.SERVICE_DATE.pad(self.service_date)
             + format.CERTIFICATION_ID.pad(self.certification_id)
         )
-
-    # @model_validator(mode="after")
-    def validate_pcn_format(self) -> NCPDPClaimHeader:
-        """Validates PCN after all fields are populated."""
-        # If PCN was an empty string (from stripping whitespace),
-        # restore it to 10 spaces
-        if not self.pcn:
-            self.pcn = " " * 10
-            return self
-
-        # For non-empty strings, validate length and content
-        if len(self.pcn) != 10:
-            raise ValueError("PCN must be exactly 10 characters")
-
-        if not all(c.isspace() or c.isdigit() for c in self.pcn):
-            raise ValueError("PCN must contain only spaces and digits")
-
-        return self
 
 
 class SegmentBase(ABC, BaseModel):
@@ -263,7 +259,7 @@ class PatientSegment(SegmentBase):
     patient_gender: Gender
     last_name: str
     first_name: str
-    patient_zip: str  # Include model validation for ZIP code
+    patient_zip: str  # TODO: Include field validation for ZIP code
 
     _key_mapping: dict[str, str] = PrivateAttr(
         default={
@@ -292,7 +288,7 @@ class PatientSegment(SegmentBase):
     def parse_date(cls, value: str) -> datetime:
         if isinstance(value, datetime):
             return value
-        date_format = "%Y%m%d"  # Specify the format "YYYYMMDD"
+        date_format = "%Y%m%d"
         try:
             return datetime.strptime(value, date_format)
         except ValueError as exc:
@@ -321,7 +317,7 @@ def parse_segment(
     for segment_class in segment_classes:
         if segment_class.model_fields.get("segment_id").default == segment_id:
             result = map_values_to_keys(segment_class.get_key_mapping().default, values)
-            return segment_class(**result)  # TODO: dob is still 1950 here
+            return segment_class(**result)
     return None
 
 
@@ -561,17 +557,18 @@ class ClinicalSegment(SegmentBase):
         return FIELD_SEPARATOR + FIELD_SEPARATOR.join(values)
 
 
+# TODO: Double check which segments are mandatory and which are optional
 class ClaimModel(BaseModel):
     header: NCPDPClaimHeader  # Transaction Header Segment
-    insurance: InsuranceSegment  # Insurance Segment
-    patient: PatientSegment | None = None  # Patient Segment
+    insurance: InsuranceSegment
+    patient: PatientSegment | None = None
     claim: ClaimSegment  # Claim Segment
     pricing: PricingSegment  # Pricing Segment
     prescriber: PrescriberSegment | None = None
     pharmacy_provider: PharmacyProviderSegment | None = None
     clinical: ClinicalSegment | None = None
 
-    # Future segments
+    # If we were to add any addtional segments, this is where to start.
     # DUR/PPS Segment - Basic clinical information
     # Compound Segment
 
@@ -611,7 +608,7 @@ class ClaimModel(BaseModel):
         segments = [
             self.header.serialize(),
             self.insurance.serialize(),
-            self.patient.serialize() + GROUP_SEPARATOR,  # Separates Patient and Claim segments
+            self.patient.serialize() + GROUP_SEPARATOR,  # Use group seperator between Patient and Claim segments
             self.claim.serialize(),
             self.pricing.serialize(),
             self.prescriber.serialize(),
@@ -629,20 +626,6 @@ class NCPDPClaimHeaderFactory(ModelFactory[NCPDPClaimHeader]):
     version = Version.MODERN  # Use modern version
     transaction_code = TransactionCode.SUBMISSION  # Use submission transaction code
     service_date = datetime.now().strftime("%Y%m%d")
-
-    @classmethod
-    def pcn(cls) -> str:
-        """Generate a valid PCN with varying combinations of spaces and digits."""
-
-        # Define possible PCN patterns:
-        patterns = [
-            " " * 10,  # All spaces
-            "1" + " " * 9,  # One digit, rest spaces
-            "12" + " " * 8,  # Two digits, rest spaces
-            "123" + " " * 7,  # Three digits, rest spaces
-            "1234567890",  # All digits
-        ]
-        return random.choice(patterns)
 
 
 class InsuranceSegmentFactory(ModelFactory[InsuranceSegment]):
@@ -763,87 +746,3 @@ class ClaimModelFactory(ModelFactory[ClaimModel]):
             pharmacy_provider=cls.pharmacy_provider,
             clinical=cls.clinical,
         )
-
-
-def parse_claim_file():
-    raw_claim_data = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
-
-    header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
-    claim_header = NCPDPClaimHeader.parse(header)
-
-    segments = [parse_segment(segment.strip()) for segment in raw_segments]
-    claim = ClaimModel.from_segments(claim_header, segments)
-
-    print(claim)
-
-
-def test_parsed_claim_matches_serialized():
-    raw_claim_data = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
-
-    header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
-    claim_header = NCPDPClaimHeader.parse(header)
-
-    segments = [parse_segment(segment.strip()) for segment in raw_segments]
-    claim = ClaimModel.from_segments(claim_header, segments)
-
-    # TODO
-    with open("SER_CLAIM_DATA.txt", "w", encoding="utf-8") as file:
-        file.write(claim.serialize())
-    assert claim.serialize() == raw_claim_data
-
-
-def main():
-    parse_claim_file()
-    test_parsed_claim_matches_serialized()
-    breakpoint()
-
-    claim = NCPDPClaimHeaderFactory.build()
-    builder_claim = ClaimModelFactory.build()
-    print(builder_claim)
-
-    print(claim)
-
-    # Produce a test claim using the factory
-    original_claim = ClaimModelFactory.build()
-    original_serialized = original_claim.serialize()
-
-    # Then parse the claim back into a model
-    header, *raw_segments = original_serialized.split(SEGMENT_SEPARATOR)
-    claim_header = NCPDPClaimHeader.parse(header)
-
-    segments: list[SegmentBase] = []
-    for segment in raw_segments:
-        trimmed_segment = segment.strip()
-        if segment_id := trimmed_segment.split(FIELD_SEPARATOR)[0]:
-            match segment_id:
-                case "AM04":  # Insurance
-                    segments.append(parse_segment(trimmed_segment))
-                case "AM01":  # Patient
-                    segments.append(parse_segment(trimmed_segment))
-                case "AM07":  # Claim
-                    segments.append(parse_segment(trimmed_segment))
-                case "AM11":  # Pricing
-                    segments.append(parse_segment(trimmed_segment))
-                case "AM03":  # Prescriber
-                    segments.append(parse_segment(trimmed_segment))
-                case "AM06":  # Pharmacy Provider
-                    segments.append(parse_segment(trimmed_segment))
-                case "AM08":  # Clinical
-                    segments.append(parse_segment(trimmed_segment))
-    parsed_claim = ClaimModel.from_segments(claim_header, segments)
-
-    assert original_claim.insurance == parsed_claim.insurance
-
-    assert original_claim.patient == parsed_claim.patient
-    assert original_claim.claim == parsed_claim.claim
-    assert original_claim.pricing == parsed_claim.pricing
-    assert original_claim.prescriber == parsed_claim.prescriber
-    assert original_claim.pharmacy_provider == parsed_claim.pharmacy_provider
-    assert original_claim.clinical == parsed_claim.clinical
-
-    assert original_claim.header == parsed_claim.header
-    assert original_claim == parsed_claim, "Parsed claim does not match original"
-
-
-if __name__ == "__main__":
-    main()
