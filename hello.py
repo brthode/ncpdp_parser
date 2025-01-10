@@ -7,9 +7,9 @@ from enum import StrEnum
 from typing import Annotated, Any
 
 from polyfactory.factories.pydantic_factory import ModelFactory
-from pydantic import BaseModel, Field, PrivateAttr, StringConstraints, field_validator, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, StringConstraints, field_validator
 
-EMI_HEADER_LENGTH = 56
+NCPDP_HEADER_LENGTH = 56
 FIELD_SEPARATOR = chr(28)  # File Separator <FS> / <0x1c>
 GROUP_SEPARATOR = chr(29)  # Group Separator <GS> / <0x1d>
 SEGMENT_SEPARATOR = chr(30)  # Record Separator <RS> / <0x1e>
@@ -46,7 +46,7 @@ def encode_overpunch(value: int) -> str:
 
 
 class TransactionCode(StrEnum):
-    """Valid transaction codes for EMI headers."""
+    """Valid transaction codes."""
 
     SUBMISSION = "B1"
     REVERSAL = "B2"
@@ -59,29 +59,13 @@ class Gender(StrEnum):
 
 
 class Version(StrEnum):
-    """Valid version codes for EMI headers."""
+    """Valid version codes for claim headers."""
 
     MODERN = "D0"  # Current version code
     LEGACY = "51"  # Legacy version code
 
 
-class Format(BaseModel):
-    """Represents a field's position and length in the EMI header."""
-
-    start: int
-    end: int | None
-
-    def __init__(self, start: int, end: int | None = None):
-        super().__init__(start=start, end=end)
-
-    @model_validator(mode="after")
-    def validate_bounds(self) -> Format:
-        if self.end is not None and self.start > self.end:
-            raise ValueError("Start position cannot be greater than end position")
-        return self
-
-
-class EMIHeader(BaseModel):
+class NCPDPClaimHeader(BaseModel):
     rxbin: Annotated[str, StringConstraints(pattern=r"^\d{6}$")] = Field(description="6-digit BIN number")
     version: Version = Field(description="Version code (D0 or 51)")
     transaction_code: TransactionCode = Field(description="Transaction type (B1 for submission, B2 for reversal)")
@@ -133,9 +117,9 @@ class EMIHeader(BaseModel):
         )
 
     @classmethod
-    def parse(cls, emi_string: str) -> EMIHeader:
+    def parse(cls, emi_string: str) -> NCPDPClaimHeader:
         """Creates an EMIHeader instance from an EMI string."""
-        if len(emi_string) != EMI_HEADER_LENGTH:
+        if len(emi_string) != NCPDP_HEADER_LENGTH:
             raise ValueError("EMI string too short")
 
         return cls(
@@ -494,7 +478,7 @@ class ClinicalSegment(SegmentBase):
 
 
 class ClaimModel(BaseModel):
-    header: EMIHeader  # Transaction Header Segment
+    header: NCPDPClaimHeader  # Transaction Header Segment
     insurance: InsuranceSegment  # Insurance Segment
     patient: PatientSegment | None = None  # Patient Segment
     claim: ClaimSegment  # Claim Segment
@@ -519,7 +503,7 @@ class ClaimModel(BaseModel):
     # Intermediary Segment
 
     @classmethod
-    def from_segments(cls, header: EMIHeader, segments: list[SegmentBase]) -> ClaimModel:
+    def from_segments(cls, header: NCPDPClaimHeader, segments: list[SegmentBase]) -> ClaimModel:
         claim_data = {"header": header}
         for segment in segments:
             if isinstance(segment, InsuranceSegment):
@@ -553,10 +537,10 @@ class ClaimModel(BaseModel):
         return SEGMENT_SEPARATOR.join(segments)
 
 
-class EMIHeaderFactory(ModelFactory[EMIHeader]):
-    """Factory for generating test EMIHeader instances."""
+class NCPDPClaimHeaderFactory(ModelFactory[NCPDPClaimHeader]):
+    """Factory for generating test NCPDPHeader instances."""
 
-    __model__ = EMIHeader
+    __model__ = NCPDPClaimHeader
 
     version = Version.MODERN  # Use modern version
     transaction_code = TransactionCode.SUBMISSION  # Use submission transaction code
@@ -654,7 +638,7 @@ class ClaimModelFactory(ModelFactory[ClaimModel]):
 
     __model__ = ClaimModel
 
-    header = EMIHeaderFactory.build()
+    header = NCPDPClaimHeaderFactory.build()
     insurance = InsuranceSegmentFactory.build()
     patient = PatientSegmentFactory.build()
     claim = ClaimSegmentFactory.build()
@@ -684,10 +668,10 @@ def parse_claim_file():
     raw_claim_data = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
 
     header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
-    emi_header = EMIHeader.parse(header)
+    claim_header = NCPDPClaimHeader.parse(header)
 
     segments = [parse_segment(segment.strip()) for segment in raw_segments]
-    claim = ClaimModel.from_segments(emi_header, segments)
+    claim = ClaimModel.from_segments(claim_header, segments)
 
     print(claim)
 
@@ -695,7 +679,7 @@ def parse_claim_file():
 def main():
     parse_claim_file()
 
-    claim = EMIHeaderFactory.build()
+    claim = NCPDPClaimHeaderFactory.build()
     builder_claim = ClaimModelFactory.build()
     print(builder_claim)
 
@@ -707,7 +691,7 @@ def main():
 
     # Then parse the claim back into a model
     header, *raw_segments = original_serialized.split(SEGMENT_SEPARATOR)
-    emi_header = EMIHeader.parse(header)
+    claim_header = NCPDPClaimHeader.parse(header)
 
     segments: list[SegmentBase] = []
     for segment in raw_segments:
@@ -728,7 +712,7 @@ def main():
                     segments.append(parse_segment(trimmed_segment))
                 case "AM08":  # Clinical
                     segments.append(parse_segment(trimmed_segment))
-    parsed_claim = ClaimModel.from_segments(emi_header, segments)
+    parsed_claim = ClaimModel.from_segments(claim_header, segments)
 
     assert original_claim.insurance == parsed_claim.insurance
 
