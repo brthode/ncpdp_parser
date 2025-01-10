@@ -71,7 +71,7 @@ class NCPDPFormat:
 
 
 @dataclass
-class NCPDPHeader:
+class NCPDPClaimHeader:
     """NCPDP header fields with parsing and serialization"""
 
     iin: str  # Issuer Identification Number
@@ -106,7 +106,6 @@ class NCPDPHeader:
     def serialize(self) -> str:
         """Convert header fields back to fixed-width format string"""
         format = NCPDPFormat
-        # Build output string with proper padding for each field
         return (
             format.IIN.pad(self.iin)
             + format.VERSION.pad(self.version)
@@ -124,7 +123,7 @@ def test_parsing_and_serialization() -> None:
     """Example of parsing and serializing NCPDP header"""
     sample_input = "024368D0B1          1011790887081     20231110          "
 
-    header = NCPDPHeader.parse(sample_input)
+    header = NCPDPClaimHeader.parse(sample_input)
 
     output = header.serialize()
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import pathlib
+import random
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, NamedTuple, Self
 
 from polyfactory.factories.pydantic_factory import ModelFactory
 from pydantic import BaseModel, Field, PrivateAttr, StringConstraints, field_validator
@@ -65,74 +66,146 @@ class Version(StrEnum):
     LEGACY = "51"  # Legacy version code
 
 
-class NCPDPClaimHeader(BaseModel):
-    rxbin: Annotated[str, StringConstraints(pattern=r"^\d{6}$")] = Field(description="6-digit BIN number")
-    version: Version = Field(description="Version code (D0 or 51)")
-    transaction_code: TransactionCode = Field(description="Transaction type (B1 for submission, B2 for reversal)")
+class PaddingDirection(StrEnum):
+    """Direction to apply padding for fixed width fields"""
 
-    processor_control: str | None = Annotated[
-        str,
-        StringConstraints(
-            min_length=1,
-            max_length=10,
-            pattern=r"^\d{1,10}$",  # Matches 1 to 10 digits.
-        ),
-    ]
-    count: Annotated[str, StringConstraints(pattern=r"^[1-9]$")] = Field(
-        description="Single digit count between 1 and 9"
-    )
-    date: datetime = Field(description="Date in YYYYMMDD format")
+    LEFT = "left"
+    RIGHT = "right"
 
-    @field_validator("date", mode="before")
+
+class NCPDPPosition(NamedTuple):
+    """Position and length for NCPDP fixed width fields"""
+
+    start: int
+    length: int
+    padding: PaddingDirection = PaddingDirection.LEFT
+
+    @property
+    def end(self) -> int:
+        """Calculate end position based on start and length"""
+        return self.start + self.length
+
+    def slice(self, data: str) -> str:
+        """Extract field from string using position"""
+        return data[self.start : self.end].strip()
+
+    def pad(self, value: str | None) -> str:
+        """Pad value to required length with proper alignment"""
+        if value is None:
+            value = ""
+        if len(value) > self.length:
+            raise ValueError(f"Value '{value}' exceeds maximum length of {self.length}")
+
+        if self.padding == PaddingDirection.LEFT:
+            return value.rjust(self.length)
+        return value.ljust(self.length)
+
+
+class NCPDPFormat:
+    """NCPDP fixed width format field positions and lengths"""
+
+    IIN = NCPDPPosition(0, 6, PaddingDirection.RIGHT)
+    VERSION = NCPDPPosition(6, 2)
+    TRANSACTION_CODE = NCPDPPosition(8, 2)
+    PCN = NCPDPPosition(10, 10, PaddingDirection.RIGHT)
+    TRANSACTION_COUNT = NCPDPPosition(20, 1)
+    SERVICE_PROVIDER_ID_QUAL = NCPDPPosition(21, 2)
+    SERVICE_PROVIDER_ID = NCPDPPosition(23, 15, PaddingDirection.RIGHT)
+    SERVICE_DATE = NCPDPPosition(38, 8)
+    CERTIFICATION_ID = NCPDPPosition(46, 10, PaddingDirection.RIGHT)
+
     @classmethod
-    def validate_date_format(cls, v: Any) -> datetime:
-        """Validates and converts the date string to datetime."""
-        if isinstance(v, datetime):
-            return v
-        if not isinstance(v, str):
-            raise ValueError("Date must be a string")
-        try:
-            return datetime.strptime(v, "%Y%m%d")
-        except ValueError as err:
-            raise ValueError("Date must be in YYYYMMDD format") from err
-
-    @field_validator("count")
-    @classmethod
-    def validate_count_range(cls, v: str) -> str:
-        """Ensures count is between 001 and 999."""
-        count_int = int(v)
-        if not 1 <= count_int <= 999:
-            raise ValueError("Count must be between 001 and 999")
-        return v
-
-    def to_emi_string(self) -> str:
-        """Converts the header to its EMI string representation."""
-        return (
-            f"{self.rxbin:<6}"
-            f"{self.version:>2}"
-            f"{self.transaction_code:>2}"
-            f"{self.processor_control:<10}"
-            f"{self.count:>3}"
-            f"{self.date.strftime('%Y%m%d')}"
+    def total_width(cls) -> int:
+        """Calculate total width of all fields"""
+        return max(
+            pos.end
+            for pos in [
+                cls.IIN,
+                cls.VERSION,
+                cls.TRANSACTION_CODE,
+                cls.PCN,
+                cls.TRANSACTION_COUNT,
+                cls.SERVICE_PROVIDER_ID_QUAL,
+                cls.SERVICE_PROVIDER_ID,
+                cls.SERVICE_DATE,
+                cls.CERTIFICATION_ID,
+            ]
         )
 
+
+class NCPDPClaimHeader(BaseModel):
+    """NCPDP header fields with parsing and serialization"""
+
+    iin: Annotated[str, StringConstraints(pattern=r"^\d{6}$")] = Field(
+        description="6-digit BIN number"
+    )  # Issuer Identification Number
+    version: str  # Version Number
+    transaction_code: str  # Transaction Code
+    pcn: str | None = Field(default=None, max_length=10)
+    #     description="10-character processor control number that can be spaces and/or digits",
+    #     min_length=10,
+    #     max_length=10,
+    # )
+    transaction_count: Annotated[str, StringConstraints(pattern=r"^[1-9]$")]  # Transaction Count
+    service_provider_id_qual: Annotated[
+        str, StringConstraints(pattern=r"^[0-9][0-9]?$")
+    ]  # Service Provider ID Qualifier
+    service_provider_id: str | None = Field(default=None, max_length=15)  # Service Provider ID
+    service_date: Annotated[str, StringConstraints(pattern=r"^\d{4}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$")]
+    # Service Date
+    certification_id: str = Field(default=None, max_length=10)  # Certification ID (Can be empty)
+
     @classmethod
-    def parse(cls, emi_string: str) -> NCPDPClaimHeader:
-        """Creates an EMIHeader instance from an EMI string."""
-        if len(emi_string) != NCPDP_HEADER_LENGTH:
-            raise ValueError("EMI string too short")
+    def parse(cls, emi_string: str) -> Self:
+        """Parse EMI string into NCPDP header fields"""
+        format = NCPDPFormat
+        if len(emi_string) < format.total_width():
+            raise ValueError(f"Input string too short. Expected at least {format.total_width()} characters")
 
         return cls(
-            rxbin=emi_string[0:6].strip(),
-            version=emi_string[6:8].strip(),
-            transaction_code=emi_string[8:10].strip(),
-            processor_control=emi_string[10:20].strip(),
-            count=emi_string[20:21],
-            sp_id_qual=emi_string[21:23],
-            sp_id=emi_string[23:38].strip(),
-            date=emi_string[38:46],
-            cert_id=emi_string[46:56],
+            iin=format.IIN.slice(emi_string),
+            version=format.VERSION.slice(emi_string),
+            transaction_code=format.TRANSACTION_CODE.slice(emi_string),
+            pcn=format.PCN.slice(emi_string),
+            transaction_count=format.TRANSACTION_COUNT.slice(emi_string),
+            service_provider_id_qual=format.SERVICE_PROVIDER_ID_QUAL.slice(emi_string),
+            service_provider_id=format.SERVICE_PROVIDER_ID.slice(emi_string),
+            service_date=format.SERVICE_DATE.slice(emi_string),
+            certification_id=format.CERTIFICATION_ID.slice(emi_string),
         )
+
+    def serialize(self) -> str:
+        """Convert header fields back to fixed-width format string"""
+        format = NCPDPFormat
+        return (
+            format.IIN.pad(self.iin)
+            + format.VERSION.pad(self.version)
+            + format.TRANSACTION_CODE.pad(self.transaction_code)
+            + format.PCN.pad(self.pcn)
+            + format.TRANSACTION_COUNT.pad(self.transaction_count)
+            + format.SERVICE_PROVIDER_ID_QUAL.pad(self.service_provider_id_qual)
+            + format.SERVICE_PROVIDER_ID.pad(self.service_provider_id)
+            + format.SERVICE_DATE.pad(self.service_date)
+            + format.CERTIFICATION_ID.pad(self.certification_id)
+        )
+
+    # @model_validator(mode="after")
+    def validate_pcn_format(self) -> NCPDPClaimHeader:
+        """Validates PCN after all fields are populated."""
+        # If PCN was an empty string (from stripping whitespace),
+        # restore it to 10 spaces
+        if not self.pcn:
+            self.pcn = " " * 10
+            return self
+
+        # For non-empty strings, validate length and content
+        if len(self.pcn) != 10:
+            raise ValueError("PCN must be exactly 10 characters")
+
+        if not all(c.isspace() or c.isdigit() for c in self.pcn):
+            raise ValueError("PCN must contain only spaces and digits")
+
+        return self
 
 
 class SegmentBase(ABC, BaseModel):
@@ -156,13 +229,13 @@ class InsuranceSegment(SegmentBase):
         """Serializes the InsuranceSegment to a string."""
         values = [
             self.segment_id,
-            f"C1{self.first_name}",
             f"C2{self.internal_control_number}",
+            f"C1{self.first_name}",
             f"C3{self.person_code}",
             f"A6{self.cardholder_id}",
             f"A7{self.last_name}",
         ]
-        return FIELD_SEPARATOR.join(values)
+        return FIELD_SEPARATOR + FIELD_SEPARATOR.join(values)
 
     segment_id: str = "AM04"
 
@@ -212,7 +285,18 @@ class PatientSegment(SegmentBase):
             f"CB{self.first_name}",
             f"CP{self.patient_zip}",
         ]
-        return FIELD_SEPARATOR.join(values)
+        return FIELD_SEPARATOR + FIELD_SEPARATOR.join(values)
+
+    @field_validator("dob", mode="before")
+    @classmethod
+    def parse_date(cls, value: str) -> datetime:
+        if isinstance(value, datetime):
+            return value
+        date_format = "%Y%m%d"  # Specify the format "YYYYMMDD"
+        try:
+            return datetime.strptime(value, date_format)
+        except ValueError as exc:
+            raise ValueError(f"Date must be in the format {date_format}") from exc
 
 
 @staticmethod
@@ -237,7 +321,7 @@ def parse_segment(
     for segment_class in segment_classes:
         if segment_class.model_fields.get("segment_id").default == segment_id:
             result = map_values_to_keys(segment_class.get_key_mapping().default, values)
-            return segment_class(**result)
+            return segment_class(**result)  # TODO: dob is still 1950 here
     return None
 
 
@@ -300,7 +384,7 @@ class ClaimSegment(SegmentBase):
             f"DT{self.submission_clarification_code}",
             f"EB{self.other_coverage_code}",
         ]
-        return FIELD_SEPARATOR.join(values)
+        return FIELD_SEPARATOR + FIELD_SEPARATOR.join(values)
 
 
 class PricingSegment(SegmentBase):
@@ -411,7 +495,7 @@ class PricingSegment(SegmentBase):
             f"DQ{self.gross_amount_due}",
             f"DU{self.other_amount_claimed}",
         ]
-        return FIELD_SEPARATOR.join(values)
+        return FIELD_SEPARATOR + FIELD_SEPARATOR.join(values)
 
 
 class PrescriberSegment(SegmentBase):
@@ -434,7 +518,7 @@ class PrescriberSegment(SegmentBase):
             f"EZ{self.prescriber_id_qualifier}",
             f"DB{self.prescriber_id}",
         ]
-        return FIELD_SEPARATOR.join(values)
+        return FIELD_SEPARATOR + FIELD_SEPARATOR.join(values)
 
 
 class PharmacyProviderSegment(SegmentBase):
@@ -454,7 +538,7 @@ class PharmacyProviderSegment(SegmentBase):
             self.segment_id,
             f"DZ{self.group_id}",
         ]
-        return FIELD_SEPARATOR.join(values)
+        return FIELD_SEPARATOR + FIELD_SEPARATOR.join(values)
 
 
 class ClinicalSegment(SegmentBase):
@@ -474,7 +558,7 @@ class ClinicalSegment(SegmentBase):
             f"7E{self.other_payer_coverage_type}",
             f"E5{self.other_payer_id_qualifier}",
         ]
-        return FIELD_SEPARATOR.join(values)
+        return FIELD_SEPARATOR + FIELD_SEPARATOR.join(values)
 
 
 class ClaimModel(BaseModel):
@@ -525,9 +609,9 @@ class ClaimModel(BaseModel):
     def serialize(self) -> str:
         """Serializes the ClaimModel to a string."""
         segments = [
-            self.header.to_emi_string(),
+            self.header.serialize(),
             self.insurance.serialize(),
-            self.patient.serialize(),
+            self.patient.serialize() + GROUP_SEPARATOR,  # Separates Patient and Claim segments
             self.claim.serialize(),
             self.pricing.serialize(),
             self.prescriber.serialize(),
@@ -544,7 +628,21 @@ class NCPDPClaimHeaderFactory(ModelFactory[NCPDPClaimHeader]):
 
     version = Version.MODERN  # Use modern version
     transaction_code = TransactionCode.SUBMISSION  # Use submission transaction code
-    date = datetime.now().strftime("%Y%m%d")
+    service_date = datetime.now().strftime("%Y%m%d")
+
+    @classmethod
+    def pcn(cls) -> str:
+        """Generate a valid PCN with varying combinations of spaces and digits."""
+
+        # Define possible PCN patterns:
+        patterns = [
+            " " * 10,  # All spaces
+            "1" + " " * 9,  # One digit, rest spaces
+            "12" + " " * 8,  # Two digits, rest spaces
+            "123" + " " * 7,  # Three digits, rest spaces
+            "1234567890",  # All digits
+        ]
+        return random.choice(patterns)
 
 
 class InsuranceSegmentFactory(ModelFactory[InsuranceSegment]):
@@ -566,7 +664,10 @@ class PatientSegmentFactory(ModelFactory[PatientSegment]):
     __model__ = PatientSegment
     segment_id = "AM01"
 
-    # dob = datetime
+    @classmethod
+    def dob(cls) -> datetime:
+        """Generate a date of birth with only year, month, and day."""
+        return datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 class ClaimSegmentFactory(ModelFactory[ClaimSegment]):
@@ -676,8 +777,25 @@ def parse_claim_file():
     print(claim)
 
 
+def test_parsed_claim_matches_serialized():
+    raw_claim_data = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
+
+    header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
+    claim_header = NCPDPClaimHeader.parse(header)
+
+    segments = [parse_segment(segment.strip()) for segment in raw_segments]
+    claim = ClaimModel.from_segments(claim_header, segments)
+
+    # TODO
+    with open("SER_CLAIM_DATA.txt", "w", encoding="utf-8") as file:
+        file.write(claim.serialize())
+    assert claim.serialize() == raw_claim_data
+
+
 def main():
     parse_claim_file()
+    test_parsed_claim_matches_serialized()
+    breakpoint()
 
     claim = NCPDPClaimHeaderFactory.build()
     builder_claim = ClaimModelFactory.build()
