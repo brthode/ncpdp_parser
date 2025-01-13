@@ -178,8 +178,8 @@ class NCPDPClaimHeader(BaseModel):
 
         return cls(
             rxbin=format.RXBIN.slice(emi_string),
-            version=format.VERSION.slice(emi_string),
-            transaction_code=format.TRANSACTION_CODE.slice(emi_string),
+            version=Version(format.VERSION.slice(emi_string)),
+            transaction_code=TransactionCode(format.TRANSACTION_CODE.slice(emi_string)),
             pcn=pcn,
             transaction_count=format.TRANSACTION_COUNT.slice(emi_string),
             service_provider_id_qual=format.SERVICE_PROVIDER_ID_QUAL.slice(emi_string),
@@ -206,6 +206,8 @@ class NCPDPClaimHeader(BaseModel):
 
 class SegmentBase(ABC, BaseModel):
     """Abstract base class for all segments."""
+
+    _key_mapping: dict[str, str] = {}
 
     @classmethod
     def get_key_mapping(cls) -> dict[str, str]:
