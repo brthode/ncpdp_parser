@@ -561,7 +561,7 @@ class ClinicalSegment(SegmentBase):
 class ClaimModel(BaseModel):
     header: NCPDPClaimHeader  # Transaction Header Segment
     insurance: InsuranceSegment
-    patient: PatientSegment | None = None
+    patient: PatientSegment
     claim: ClaimSegment  # Claim Segment
     pricing: PricingSegment  # Pricing Segment
     prescriber: PrescriberSegment | None = None
@@ -614,16 +614,21 @@ class ClaimModel(BaseModel):
 
     def serialize(self) -> str:
         """Serializes the ClaimModel to a string."""
-        segments = [
-            self.header.serialize(),
-            self.insurance.serialize(),
-            self.patient.serialize() + GROUP_SEPARATOR,  # Use group seperator between Patient and Claim segments
-            self.claim.serialize(),
-            self.pricing.serialize(),
-            self.prescriber.serialize(),
-            self.pharmacy_provider.serialize(),
-            self.clinical.serialize(),
-        ]
+        segments = [self.header.serialize()]
+        for segment in [
+            self.insurance,
+            # self.patient,
+            self.claim,
+            self.pricing,
+            self.prescriber,
+            self.pharmacy_provider,
+            self.clinical,
+        ]:
+            if segment:
+                segments.append(segment.serialize())
+        segments.insert(
+            2, self.patient.serialize() + GROUP_SEPARATOR
+        )  # Use group separator between Patient and Claim segments
         return SEGMENT_SEPARATOR.join(segments)
 
 
