@@ -14,41 +14,79 @@ GROUP_SEPARATOR = chr(29)  # Group Separator <GS> / <0x1d>
 SEGMENT_SEPARATOR = chr(30)  # Record Separator <RS> / <0x1e>
 
 
-def encode_overpunch(value: int) -> str:
-    overpunch_map = {
-        0: "{",
-        1: "A",
-        2: "B",
-        3: "C",
-        4: "D",
-        5: "E",
-        6: "F",
-        7: "G",
-        8: "H",
-        9: "I",
-        -0: "}",
-        -1: "J",
-        -2: "K",
-        -3: "L",
-        -4: "M",
-        -5: "N",
-        -6: "O",
-        -7: "P",
-        -8: "Q",
-        -9: "R",
-    }
-
-    str_value = str(abs(value))
-    last_digit = int(str_value[-1]) * (1 if value >= 0 else -1)
-    encoded_char = overpunch_map[last_digit]
-    return str_value[:-1] + encoded_char
-
-
 class TransactionCode(StrEnum):
-    """Valid transaction codes."""
+    """Valid transaction codes. (A3)"""
 
-    SUBMISSION = "B1"
+    BILLING = "B1"
     REVERSAL = "B2"
+    REBILL = "B3"
+    CONTROLLED_SUBSTANCE_REPORTING = "C1"
+    CONTROLLED_SUBSTANCE_REVERSAL = "C2"
+    CONTROLLED_SUBSTANCE_REBILL = "C3"
+    PREDETERMINATION_OF_BENEFITS = "D1"
+    ELIGIBILITY_VERIFICATION = "E1"
+    INFORMATION_REPORTING = "N1"
+    INFORMATION_REPORTING_REVERSAL = "N2"
+    INFORMATION_REPORTING_REBILL = "N3"
+    PA_REQUEST_AND_BILLING = "P1"
+    PA_REVERSAL = "P2"
+    PA_INQUIRY = "P3"
+    PA_REQUEST_ONLY = "P4"
+    SERVICE_BILLING = "S1"
+    SERVICE_REVERSAL = "S2"
+    SERVICE_REBILL = "S3"
+    FINANCIAL_INFO_REPORTING_INQUIRY = "F1"
+    FINANCIAL_INFO_REPORTING_UPDATE = "F2"
+    FINANCIAL_INFO_REPORTING_EXCHANGE = "F3"
+
+
+class PrescriptionServiceReferenceNumberQualifier(StrEnum):
+    RX_BILLING = "01"
+    SERVICE_BILLING = "02"
+    NON_PRESCRIPTION_PRODUCT = "03"
+
+
+class ProductServiceIdQualifier(StrEnum):
+    """Valid prescription service reference number qualifiers. (E1)"""
+
+    NOT_SPECIFIED = "00"
+    UPC = "01"
+    HRI = "02"
+    NDC = "03"
+    HIBCC = "04"
+    DUR_PPS = "06"
+    CPT_4 = "07"
+    CPT5 = "08"
+    HCPCS = "09"
+    PPAC = "10"
+    NAPPI = "11"
+    GTIN = "12"
+    GCN = "15"
+    FDB_MED_NAME_ID = "28"
+    FDB_ROUTED_MED_ID = "29"
+    FDB_ROUTED_DOSAGE_FORM_MED_ID = "30"
+    FDB_MED_ID = "31"
+    GCN_SEQNO = "32"
+    HICL_SEQNO = "33"
+    UPN = "34"
+    NDC_36 = "36"
+    MPID = "42"
+    PROD_ID = "43"
+    SPID = "44"
+    DI = "45"
+    OTHER = "99"
+
+
+class SpecialPackagingIndicator(StrEnum):
+    NOT_SPECIFIED = "0"
+    NOT_UNIT_DOSE = "1"
+    MANUFACTURER_UNIT_DOSE = "2"
+    PHARMACY_UNIT_DOSE = "3"
+    PHARMACY_UNIT_DOSE_PATIENT_COMPLIANCE_PACKAGING = "4"
+    PHARMACY_MULTI_DRUG_PATIENT_COMPLIANCE_PACKAGING = "5"
+    REMOTE_DEVICE_UNIT_DOSE = "6"
+    REMOTE_DEVICE_MULTI_DRUG_COMPLIANCE = "7"
+    MANUFACTURER_UNIT_OF_USE_PACKAGE = "8"
 
 
 class Gender(StrEnum):
@@ -112,24 +150,6 @@ class NCPDPFormat:
     SERVICE_DATE = NCPDPPosition(38, 8)
     CERTIFICATION_ID = NCPDPPosition(46, 10, PaddingDirection.RIGHT)
 
-    @classmethod
-    def total_width(cls) -> int:
-        """Calculate total width of all fields"""
-        return max(
-            pos.end
-            for pos in [
-                cls.RXBIN,
-                cls.VERSION,
-                cls.TRANSACTION_CODE,
-                cls.PCN,
-                cls.TRANSACTION_COUNT,
-                cls.SERVICE_PROVIDER_ID_QUAL,
-                cls.SERVICE_PROVIDER_ID,
-                cls.SERVICE_DATE,
-                cls.CERTIFICATION_ID,
-            ]
-        )
-
 
 class NCPDPClaimHeader(BaseModel):
     """NCPDP header fields with parsing and serialization"""
@@ -160,8 +180,8 @@ class NCPDPClaimHeader(BaseModel):
     def parse(cls, emi_string: str) -> Self:
         """Parse EMI string into NCPDP header fields"""
         format = NCPDPFormat
-        if len(emi_string) < format.total_width():
-            raise ValueError(f"Input string too short. Expected at least {format.total_width()} characters")
+        if len(emi_string) < NCPDP_HEADER_LENGTH:
+            raise ValueError(f"Input string too short. Expected at least {NCPDP_HEADER_LENGTH} characters")
 
         pcn = None if format.PCN.slice(emi_string).strip() == "" else format.PCN.slice(emi_string)
         service_provider_id = (
@@ -326,21 +346,29 @@ def parse_segment(
 class ClaimSegment(SegmentBase):
     segment_id: str = "AM07"
 
-    prescription_service_reference_number_qualifier: str
-    prescription_service_reference_number: str
-    product_service_id_qualifier: str
-    product_service_id: str
-    quantity_dispensed: str
-    days_supply: str
     daw_product_selection_code: str
-    date_written: str
-    refills_authorized: str
-    refill_number: str
-    dateof_service: str
-    levelof_service: str
-    prescription_origin_code: str
-    submission_clarification_code: str
+    date_prescription_written: str
+    days_supply: str
     other_coverage_code: str
+    prescription_origin_code: str
+    procedure_modifiers: str
+    procedure_modifiers: Annotated[str, StringConstraints(pattern=r"^.{2}$")] = Field(
+        description="2-character procedure modifier code"
+    )
+    prescription_service_reference_number: Annotated[str, StringConstraints(pattern=r"^\d{12}$")] = Field(
+        description="Prescription service reference number as 12-digit unsigned integer"
+    )
+    prescription_service_reference_number_qualifier: PrescriptionServiceReferenceNumberQualifier
+    product_service_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9]{1,19}$")] = Field(
+        description="Product Service ID as 19-character alphanumeric"
+    )
+
+    product_service_id_qualifier: ProductServiceIdQualifier
+    quantity_dispensed: str  # 0000010000 = 10.000 (u7v3)
+    refills_authorized: str
+    fill_number: str
+    number_authorized_refills: str
+    special_packaging_indicator: SpecialPackagingIndicator
 
     _key_mapping: dict[str, str] = PrivateAttr(
         default={
@@ -348,16 +376,16 @@ class ClaimSegment(SegmentBase):
             "D2": "prescription_service_reference_number",
             "E1": "product_service_id_qualifier",
             "D7": "product_service_id",
-            "SE": "quantity_dispensed",
-            "E7": "days_supply",
-            "D3": "daw_product_selection_code",
-            "D5": "date_written",
+            "E7": "quantity_dispensed",
+            "D3": "fill_number",
+            "SE": "procedure_modifiers",
+            "D5": "days_supply",
+            "D8": "daw_product_selection_code",
+            "DE": "date_prescription_written",
             "D6": "refills_authorized",
-            "D8": "refill_number",
-            "DE": "dateof_service",
-            "DF": "levelof_service",
+            "DF": "number_authorized_refills",
             "DJ": "prescription_origin_code",
-            "DT": "submission_clarification_code",
+            "DT": "special_packaging_indicator",
             "EB": "other_coverage_code",
         }
     )
@@ -370,19 +398,40 @@ class ClaimSegment(SegmentBase):
             f"D2{self.prescription_service_reference_number}",
             f"E1{self.product_service_id_qualifier}",
             f"D7{self.product_service_id}",
-            f"SE{self.quantity_dispensed}",
-            f"E7{self.days_supply}",
-            f"D3{self.daw_product_selection_code}",
-            f"D5{self.date_written}",
+            f"SE{self.procedure_modifiers}",
+            f"E7{self.quantity_dispensed}",
+            f"D3{self.fill_number}",
+            f"D5{self.days_supply}",
             f"D6{self.refills_authorized}",
-            f"D8{self.refill_number}",
-            f"DE{self.dateof_service}",
-            f"DF{self.levelof_service}",
+            f"D8{self.daw_product_selection_code}",
+            f"DE{self.date_prescription_written}",
+            f"DF{self.number_authorized_refills}",
             f"DJ{self.prescription_origin_code}",
-            f"DT{self.submission_clarification_code}",
+            f"DT{self.special_packaging_indicator}",
             f"EB{self.other_coverage_code}",
         ]
         return FIELD_SEPARATOR + FIELD_SEPARATOR.join(values)
+
+    # TODO: Once we are sure we have everything correct, we can move to obtaining the fields instead of hardcoding them.
+    # TODO: The downside is our direct serlization to raw claim test will fail because of the change in field ordering.
+    # def serialize(self) -> str:
+    #     """Serializes the ClaimSegment to a string."""
+    #     values = [
+    #         self.segment_id,
+    #         ]
+    #     for key, attr in self._key_mapping.items():
+    #         values.append(f"{key}{getattr(self, attr)}")
+    #     return FIELD_SEPARATOR + FIELD_SEPARATOR.join(values)
+
+    @field_validator("prescription_service_reference_number_qualifier", mode="before")
+    @classmethod
+    def normalize_qualifier(cls, value: str | int) -> str:
+        # Convert integers to strings with zero-padding
+        if isinstance(value, int):
+            value = f"{value:02}"
+        elif isinstance(value, str) and len(value) == 1 and value.isdigit():
+            value = value.zfill(2)
+        return value
 
 
 class PricingSegment(SegmentBase):
@@ -640,7 +689,7 @@ class NCPDPClaimHeaderFactory(ModelFactory[NCPDPClaimHeader]):
     __model__ = NCPDPClaimHeader
 
     version = Version.MODERN  # Use modern version
-    transaction_code = TransactionCode.SUBMISSION  # Use submission transaction code
+    transaction_code = TransactionCode.BILLING  # Use submission transaction code
     service_date = datetime.now().strftime("%Y%m%d")
 
 
@@ -674,6 +723,8 @@ class ClaimSegmentFactory(ModelFactory[ClaimSegment]):
 
     __model__ = ClaimSegment
     segment_id: str = "AM07"
+
+    prescription_service_reference_number = "123456789015"  # TODO: Solve without hardcoding
 
     # prescription_service_reference_number_qualifier = "EM"
     # prescription_service_reference_number = "1234567890"
