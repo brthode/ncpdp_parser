@@ -585,7 +585,16 @@ class ClaimModel(BaseModel):
 
     @classmethod
     def from_segments(cls, header: NCPDPClaimHeader, segments: list[SegmentBase]) -> ClaimModel:
-        claim_data = {"header": header}
+        claim_data = {
+            "header": header,
+            "insurance": None,
+            "patient": None,
+            "claim": None,
+            "pricing": None,
+            "prescriber": None,
+            "pharmacy_provider": None,
+            "clinical": None,
+        }
         for segment in segments:
             if isinstance(segment, InsuranceSegment):
                 claim_data["insurance"] = segment
@@ -601,7 +610,7 @@ class ClaimModel(BaseModel):
                 claim_data["pharmacy_provider"] = segment
             elif isinstance(segment, ClinicalSegment):
                 claim_data["clinical"] = segment
-        return cls(**claim_data)
+        return cls(**{k: v for k, v in claim_data.items() if v is not None})
 
     def serialize(self) -> str:
         """Serializes the ClaimModel to a string."""
