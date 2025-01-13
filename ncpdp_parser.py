@@ -300,7 +300,7 @@ class PatientSegment(SegmentBase):
 @staticmethod
 def parse_segment(
     raw_segment: str,
-) -> InsuranceSegment | None:
+) -> SegmentBase | None:
     if not raw_segment or len(raw_segment) == 0:
         return None
 

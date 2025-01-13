@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+from collections.abc import Sequence
 
 from ncpdp_parser import (
     SEGMENT_SEPARATOR,
@@ -8,6 +9,7 @@ from ncpdp_parser import (
     ClaimModelFactory,
     NCPDPClaimHeader,
     NCPDPClaimHeaderFactory,
+    SegmentBase,
     parse_segment,
 )
 
@@ -19,7 +21,9 @@ def test_parsed_claim_matches_serialized():
     header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
     claim_header = NCPDPClaimHeader.parse(header)
 
-    segments = [parse_segment(segment.strip()) for segment in raw_segments]
+    segments: Sequence[SegmentBase] = [
+        segment for segment in (parse_segment(segment.strip()) for segment in raw_segments) if segment is not None
+    ]
     claim = ClaimModel.from_segments(claim_header, segments)
 
     assert claim.serialize() == raw_claim_data
@@ -35,7 +39,9 @@ def test_factory_claim_parsing():
     header, *raw_segments = original_serialized.split(SEGMENT_SEPARATOR)
     claim_header = NCPDPClaimHeader.parse(header)
 
-    segments = [parse_segment(segment.strip()) for segment in raw_segments]
+    segments: Sequence[SegmentBase] = [
+        segment for segment in (parse_segment(segment.strip()) for segment in raw_segments) if segment is not None
+    ]
     parsed_claim = ClaimModel.from_segments(claim_header, segments)
 
     # Test individual segments match
