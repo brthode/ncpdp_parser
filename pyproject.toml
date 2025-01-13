@@ -18,6 +18,7 @@ dev = [
     "pyright>=1.1.391",
     "pytest>=8.3.4",
     "pytest-cov>=6.0.0",
+    "pytest-watcher>=0.4.3",
     "ruff>=0.8.4",
     "vulture>=2.14",
 ]
