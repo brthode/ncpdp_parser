@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import pathlib
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, NamedTuple, Self
@@ -349,7 +351,7 @@ class ClaimSegment(SegmentBase):
     daw_product_selection_code: str
     date_prescription_written: str
     days_supply: str
-    other_coverage_code: str
+    other_coverage_code: str | None = None
     prescription_origin_code: str
     procedure_modifiers: str
     procedure_modifiers: Annotated[str, StringConstraints(pattern=r"^.{2}$")] = Field(
@@ -368,7 +370,7 @@ class ClaimSegment(SegmentBase):
     refills_authorized: str
     fill_number: str
     number_authorized_refills: str
-    special_packaging_indicator: SpecialPackagingIndicator
+    special_packaging_indicator: SpecialPackagingIndicator | None = None
 
     _key_mapping: dict[str, str] = PrivateAttr(
         default={
@@ -448,8 +450,8 @@ class PricingSegment(SegmentBase):
         description="Dispensing fee in Overpunch format"
     )
 
-    professional_service_fee_submitted: Annotated[str, StringConstraints(pattern=r"^\d+[A-IJ-R{}]$")] = Field(
-        description="Professional service fee in Overpunch format"
+    professional_service_fee_submitted: Annotated[str | None, StringConstraints(pattern=r"^\d+[A-IJ-R{}]$")] = Field(
+        default=None, description="Professional service fee in Overpunch format"
     )
 
     gross_amount_due: Annotated[str, StringConstraints(pattern=r"^\d+[A-IJ-R{}]$")] = Field(
@@ -682,7 +684,33 @@ class ClaimModel(BaseModel):
         )  # Use group separator between Patient and Claim segments
         return SEGMENT_SEPARATOR.join(segments)
 
+    @classmethod
     def from_file(cls, file_path: str) -> ClaimModel:
+        """
+        Parse a claim from a file containing an NCPDP claim string.
+
+        Args:
+            file_path: Path to file containing NCPDP claim data
+
+        Returns:
+            ClaimModel: Parsed claim model
+        """
+        content = pathlib.Path(file_path).read_text(encoding="utf-8")
+
+        header, *raw_segments = content.split(SEGMENT_SEPARATOR)
+        claim_header = NCPDPClaimHeader.parse(header)
+
+        segments: Sequence[SegmentBase] = [
+            segment for segment in (parse_segment(segment.strip()) for segment in raw_segments) if segment is not None
+        ]
+
+        return ClaimModel.from_segments(claim_header, segments)
+
+    @classmethod
+    def reverse(cls) -> ClaimModel:
+        """Reverse the claim by swapping the first and last name of the patient."""
+        cls.header.transaction_code = TransactionCode.REVERSAL
+
 
 class NCPDPClaimHeaderFactory(ModelFactory[NCPDPClaimHeader]):
     """Factory for generating test NCPDPHeader instances."""
