@@ -15,18 +15,17 @@ from ncpdp_parser import (
 
 
 def test_parsed_claim_matches_serialized():
-    """Test that a parsed claim can be serialized back to its original form."""
-    raw_claim_data = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
+    """Test that parsing and then serializing a claim produces the original string."""
+    # Load the test claim
+    claim = ClaimModel.from_file("RAW_Claim_Data.txt")
 
-    header, *raw_segments = raw_claim_data.split(SEGMENT_SEPARATOR)
-    claim_header = NCPDPClaimHeader.parse(header)
+    # Serialize the parsed claim
+    serialized = claim.serialize()
 
-    segments: Sequence[SegmentBase] = [
-        segment for segment in (parse_segment(segment.strip()) for segment in raw_segments) if segment is not None
-    ]
-    claim = ClaimModel.from_segments(claim_header, segments)
+    # Read the original file content
+    original = pathlib.Path("RAW_Claim_Data.txt").read_text(encoding="utf-8")
 
-    assert claim.serialize() == raw_claim_data
+    assert serialized == original
 
 
 def test_factory_claim_parsing():
