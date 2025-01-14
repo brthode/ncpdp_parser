@@ -682,6 +682,7 @@ class ClaimModel(BaseModel):
         )  # Use group separator between Patient and Claim segments
         return SEGMENT_SEPARATOR.join(segments)
 
+    def from_file(cls, file_path: str) -> ClaimModel:
 
 class NCPDPClaimHeaderFactory(ModelFactory[NCPDPClaimHeader]):
     """Factory for generating test NCPDPHeader instances."""
